@@ -49,6 +49,34 @@ def generate_test_wav(duration_sec: int = 3, sample_rate: int = 16000) -> dict:
     }
 
 
+def record_audio(duration_sec: int = 3, sample_rate: int = 16000) -> dict:
+    """Record via arecord on Pi when a capture device exists; else fall back to a test WAV."""
+    if ON_PI:
+        env = check_audio_env()
+        if env["status"] == "ok" and "card" in env["devices"]:
+            os.makedirs(AUDIO_TMP_DIR, exist_ok=True)
+            out_path = os.path.join(AUDIO_TMP_DIR, "exp1_record_16k.wav")
+            try:
+                res = subprocess.run(
+                    ["arecord", "-d", str(duration_sec), "-f", "S16_LE", "-r", str(sample_rate), "-c", "1", out_path],
+                    capture_output=True, text=True, timeout=duration_sec + 10,
+                )
+                if res.returncode == 0 and os.path.exists(out_path):
+                    return {
+                        "file_path": out_path,
+                        "sample_rate": sample_rate,
+                        "channels": 1,
+                        "file_size_bytes": os.path.getsize(out_path),
+                        "on_pi": True,
+                        "source": "arecord",
+                    }
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+    info = generate_test_wav(duration_sec, sample_rate)
+    info["source"] = "synthetic_fallback"
+    return info
+
+
 if __name__ == "__main__":
     info = generate_test_wav(3, 16000)
     if "--quiet-test" in sys.argv:
