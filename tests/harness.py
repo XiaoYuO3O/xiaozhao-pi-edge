@@ -18,4 +18,5 @@ if __name__ == "__main__":
     if "--full" in sys.argv:
         ok &= run_check("MPC Core Engine (5 Scenarios)", "python3 src/mpc_core.py --quiet-test")
         ok &= run_check("Eval & Handover Export", "python3 src/eval_and_handover.py --quiet-test")
+        ok &= run_check("Exp1 Audio Check", "python3 src/exp1_pi_audio_check.py --quiet-test")
     sys.exit(0 if ok else 1)
