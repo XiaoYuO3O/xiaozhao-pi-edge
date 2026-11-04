@@ -1,0 +1,10 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.wav
+*.mp3
+audio_tmp/*
+!audio_tmp/.gitkeep
+.env
+.DS_Store
