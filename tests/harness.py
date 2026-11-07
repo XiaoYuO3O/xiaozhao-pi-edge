@@ -21,4 +21,6 @@ if __name__ == "__main__":
         ok &= run_check("Exp1 Audio Check", "python3 src/exp1_pi_audio_check.py --quiet-test")
         ok &= run_check("Edge State Machine & Offline Queue", "python3 src/edge_state_machine.py --quiet-test")
         ok &= run_check("End-to-End IoT API Client", "python3 src/iot_api_client.py --quiet-test")
+        ok &= run_check("Live Audio & WAV Bridge", "python3 src/run_live_audio.py --quiet-test")
+        ok &= run_check("Unedited Interview Analyzer", "python3 src/interview_analyzer.py --quiet-test")
     sys.exit(0 if ok else 1)

@@ -8,3 +8,5 @@ audio_tmp/*
 !audio_tmp/.gitkeep
 .env
 .DS_Store
+audio_raw/
+transcripts_out/
