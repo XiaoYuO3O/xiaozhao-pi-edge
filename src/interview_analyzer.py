@@ -19,17 +19,17 @@ import sys
 import time
 import wave
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     from src.mpc_core import (AGREEMENT_TOKENS_RE, AmbientIntentPreFetcher, DialogueSessionState,
-                              UtteranceTurn, XiaoZhaoMPCEngine, classify_mintrec_taxonomy, infer_session_speaker_roles,
-                              is_agreement_only)
+                              UtteranceTurn, XiaoZhaoMPCEngine, bi_cl_disentangle_threads, classify_mintrec_taxonomy,
+                              infer_session_speaker_roles, is_agreement_only)
 except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from mpc_core import (AGREEMENT_TOKENS_RE, AmbientIntentPreFetcher, DialogueSessionState,
-                          UtteranceTurn, XiaoZhaoMPCEngine, classify_mintrec_taxonomy, infer_session_speaker_roles,
-                          is_agreement_only)
+                          UtteranceTurn, XiaoZhaoMPCEngine, bi_cl_disentangle_threads, classify_mintrec_taxonomy,
+                          infer_session_speaker_roles, is_agreement_only)
 
 ROOT = Path(__file__).resolve().parent.parent
 AUDIO_TMP = ROOT / "audio_tmp"
@@ -443,8 +443,29 @@ def _infer_addressee(i: int, turns: List[dict], role_map: Dict[str, str]) -> Tup
     return "ALL", "broadcast"
 
 
+def bi_cl_refine_windows(out: List[dict], window_sec: float) -> List[dict]:
+    """Bi-CL session-prototype refinement of the greedy T_TOPIC threads, one window_sec block at a time
+    (prototypes stay time-local, like the greedy 300 s activity window). Sets thread_id to the refined
+    session and keeps greedy_thread_id. -> per-block bi_cl_disentangle_summary list."""
+    summaries = []
+    for w in sorted({o["window"] for o in out}):
+        block = [o for o in out if o["window"] == w]
+        turns = [UtteranceTurn(o["turn_id"], o["start"], o["speaker_id"], "unknown", o["text"],
+                               thread_id=o["greedy_thread_id"]) for o in block]
+        refined, sm = bi_cl_disentangle_threads(turns, {o["turn_id"]: o["greedy_thread_id"] for o in block},
+                                                keyword_fn=_keywords)
+        for o in block:
+            o["thread_id"] = refined[o["turn_id"]]
+        summaries.append({"window": w, **{k: sm[k] for k in ("substantive_turns", "estimated_k",
+                                                              "raw_greedy_threads", "refined_prototype_threads",
+                                                              "raw_cohesion_score", "prototype_cohesion_score")},
+                          "reassigned": len(sm["reassigned_turns"])})
+    return summaries
+
+
 def general_mpc_disentangle(turns: list, window_sec: float = 300.0) -> dict:
-    """Addressee inference + thread disentanglement over sliding windows of a long interview."""
+    """Addressee inference + greedy preceding-only thread splitting over sliding windows of a long interview,
+    refined by Bi-CL session prototypes (thread_id = refined, greedy_thread_id = greedy)."""
     turns = sorted(({**t, "speaker": _speaker_of(t), "speaker_id": _speaker_of(t)} for t in turns),
                    key=lambda t: float(t["start"]))
     role_map: Dict[str, str] = {}
@@ -507,7 +528,9 @@ def general_mpc_disentangle(turns: list, window_sec: float = 300.0) -> dict:
         out.append({"turn_id": i + 1, "start": round(start, 2), "end": round(float(t["end"]), 2),
                     "window": int(start // window_sec), "speaker": t["speaker"], "speaker_id": t["speaker"],
                     "addressee": addressee,
-                    "addressee_reason": reason, "thread_id": tid, "thread_sim": round(sim, 3), "text": text})
+                    "addressee_reason": reason, "thread_id": tid, "greedy_thread_id": tid,
+                    "thread_sim": round(sim, 3), "text": text})
+    bi_cl_windows = bi_cl_refine_windows(out, window_sec)
 
     windows = []
     for w in sorted({o["window"] for o in out}):
@@ -517,7 +540,14 @@ def general_mpc_disentangle(turns: list, window_sec: float = 300.0) -> dict:
                         "threads": sorted({o["thread_id"] for o in wt if o["thread_id"] != NOISE_THREAD})})
     content = sorted({o["thread_id"] for o in out if o["thread_id"] != NOISE_THREAD},
                      key=lambda x: int(x.rsplit("_", 1)[1]))
-    return {"window_sec": window_sec, "turns": out, "content_threads": content,
+    greedy = {o["greedy_thread_id"] for o in out if o["greedy_thread_id"] != NOISE_THREAD}
+    bi_cl = {"raw_greedy_threads": len(greedy), "refined_prototype_threads": len(content),
+             "estimated_k": len(content),
+             "prototype_cohesion_score": round(sum(b["prototype_cohesion_score"] * b["substantive_turns"]
+                                                   for b in bi_cl_windows)
+                                               / max(1, sum(b["substantive_turns"] for b in bi_cl_windows)), 3),
+             "reassigned_turns": sum(b["reassigned"] for b in bi_cl_windows), "windows": bi_cl_windows}
+    return {"window_sec": window_sec, "turns": out, "content_threads": content, "bi_cl_disentangle_summary": bi_cl,
             "noise_turn_ids": [o["turn_id"] for o in out if o["thread_id"] == NOISE_THREAD],
             "role_map": role_map, "windows": windows}
 
@@ -540,16 +570,19 @@ def mine_golden_hotspots(turns, top_k: int = 5) -> List[dict]:
         speakers = {spk(t) for t in seg}
         if len(speakers) >= 2:
             switches = sum(1 for a, b in zip(seg, seg[1:]) if spk(a) != spk(b))
-            content = [t.get("thread_id") for t in seg if t.get("thread_id") is not None]
+            # candidates are ranked on the greedy split (raw interleave = MPC difficulty); Bi-CL threads are reported
+            content = [t.get("greedy_thread_id", t.get("thread_id")) for t in seg if t.get("thread_id") is not None]
             interleave = sum(1 for a, b in zip(content, content[1:]) if a != b)
             n_threads = len(set(content))
+            refined = sorted({t["thread_id"] for t in seg if t.get("thread_id") is not None})
             chars = sum(len(_clean(t["text"])) for t in seg)
             score = (switches + 1.5 * interleave + 2.0 * (len(speakers) - 1) + (n_threads - 1)
                      + min(chars / HOTSPOT_CHARS_PER_POINT, HOTSPOT_CHARS_CAP))
             cands.append({"start": round(w, 2), "end": round(w + HOTSPOT_WIN_S, 2), "start_mmss": mmss(w),
                           "end_mmss": mmss(w + HOTSPOT_WIN_S), "score": round(score, 2),
                           "speakers": sorted(speakers), "speaker_switches": switches,
-                          "thread_interleaves": interleave, "threads": sorted(set(content)),
+                          "thread_interleaves": interleave, "threads": refined,
+                          "greedy_threads": sorted(set(content)),
                           "substantive_chars": chars, "turn_ids": [t.get("turn_id") for t in seg],
                           "preview": " / ".join(f"{spk(t)}: {t['text'][:20]}" for t in seg[:4])})
         if w + HOTSPOT_WIN_S >= t_end:
@@ -593,10 +626,13 @@ def run_ambient_mintrec(turns: List[dict], session_id: str) -> dict:
                                        for k, p in pf.staged_packets.items()}}
 
 
-def recording_speaker_roles(turns: List[dict]) -> Dict[str, str]:
+def recording_speaker_roles(turns: List[dict], sources_out: Optional[Dict[str, str]] = None,
+                            graph_evidence_out: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
     """Upgrade A over the ENTIRE recording: a 60 s hotspot rarely carries role cues for every speaker, so
-    the recording-level map is saved in the report and used as the fallback prior per hotspot window."""
-    return infer_session_speaker_roles([_to_turn(i, t) for i, t in enumerate(turns, start=1)])
+    the recording-level map is saved in the report and used as the fallback prior per hotspot window.
+    Speakers with no lexical self-cue fall back to GIFT graph-induced roles (source graph_inferred)."""
+    return infer_session_speaker_roles([_to_turn(i, t) for i, t in enumerate(turns, start=1)],
+                                       sources_out=sources_out, graph_evidence_out=graph_evidence_out)
 
 
 def run_mpc_engine(turns: List[dict], session_id: str) -> dict:
@@ -704,8 +740,8 @@ def _turn_sample(t: dict, merged_by_start: Dict[float, dict]) -> dict:
     m = merged_by_start.get(round(float(t["start"]), 2), {})
     return {"turn_id": t["turn_id"], "start": t["start"], "end": t["end"], "start_mmss": mmss(t["start"]),
             "speaker": t["speaker_id"], "addressee": t["addressee"], "addressee_reason": t["addressee_reason"],
-            "thread_id": t["thread_id"], "text": t["text"],
-            "mintrec_fine": (m.get("mintrec") or {}).get("fine", "UNK"),
+            "thread_id": t["thread_id"], "greedy_thread_id": t.get("greedy_thread_id", t["thread_id"]),
+            "text": t["text"], "mintrec_fine": (m.get("mintrec") or {}).get("fine", "UNK"),
             "domain_intents": XiaoZhaoMPCEngine().detect_domain_intents(t["text"])}
 
 
@@ -722,7 +758,7 @@ def export_extracted_samples(report_paths: List[Path], out_path: Path, top_k: in
         by_id = {t["turn_id"]: t for t in dis["turns"]}
         merged_by_start = {round(float(t["start"]), 2): t for t in r["merged_turns"]}
         stem = Path(r["source"]).stem
-        rec_roles = r.get("recording_speaker_roles") or recording_speaker_roles(r["merged_turns"])
+        rec_roles = recording_speaker_roles(r["merged_turns"])   # always re-derive: engine upgrades apply
         hotspots = []
         for h in r["golden_hotspots"][:top_k]:
             turns = [_turn_sample(by_id[i], merged_by_start) for i in h["turn_ids"]
@@ -730,19 +766,21 @@ def export_extracted_samples(report_paths: List[Path], out_path: Path, top_k: in
             session = DialogueSessionState(session_id=f"S_{stem}_HS{h['rank']}", case_id=f"REAL_{stem.upper()}",
                                            role_priors=rec_roles)
             session.turns = [UtteranceTurn(k, t["start"], t["speaker"], "unknown", t["text"],
-                                           addressee=t["addressee"], thread_id=t["thread_id"])
+                                           addressee=t["addressee"], thread_id=t["greedy_thread_id"])
                              for k, t in enumerate(turns, start=1)]
             res = engine.analyze_session(session) if session.turns else {}
             hotspots.append({
                 "rank": h["rank"], "window": f"{h['start_mmss']}-{h['end_mmss']}", "score": h["score"],
                 "speakers": h["speakers"], "speaker_switches": h["speaker_switches"],
-                "thread_interleaves": h["thread_interleaves"], "threads": h["threads"], "turns": turns,
+                "thread_interleaves": h["thread_interleaves"], "threads": h["threads"],
+                "greedy_threads": h.get("greedy_threads", h["threads"]), "turns": turns,
                 "segments": [{"start": t["start"], "end": t["end"], "speaker": t["speaker"], "text": t["text"]}
                              for t in turns],
                 "mpc_result": {**{k: res.get(k) for k in ("detected_intents", "route_target", "safety_level",
                                                           "pi_state", "selected_turn_indices", "speaker_roles",
                                                           "speaker_role_sources",
-                                                          "mintrec_transitions")},
+                                                          "mintrec_transitions", "gift_graph_summary",
+                                                          "bi_cl_disentangle_summary")},
                                "cross_turn_fusion": (res.get("dst_slots") or {}).get("cross_turn_fusion"),
                                "who_to_whom_role": {d["turn_id"]: d["who_to_whom_role"]
                                                     for d in res.get("turns_detail", [])}}})

@@ -257,10 +257,13 @@ def run_batch(audio_dir: str, model_size: str = "base", reuse_reports: bool = Fa
     dup_turns_removed = 0
     quality_upgrades = 0
 
-    rec_roles = {}
+    rec_roles, rec_role_sources, rec_graph_roles = {}, {}, {}
     for stem, rep in reports:
-        # recording-level roles first (whole recording), reused as priors for every hotspot window
-        rec_roles[stem] = rep.get("recording_speaker_roles") or ia.recording_speaker_roles(rep.get("merged_turns", []))
+        # recording-level roles first (whole recording), reused as priors for every hotspot window;
+        # always re-derived (cached report roles predate engine upgrades such as GIFT graph inference)
+        rec_role_sources[stem], ev = {}, {}
+        rec_roles[stem] = ia.recording_speaker_roles(rep.get("merged_turns", []), rec_role_sources[stem], ev)
+        rec_graph_roles[stem] = {sp: e["label"] for sp, e in ev.items()}
         gd = rep.get("general_disentangle", {})
         turns = gd.get("turns", rep.get("merged_turns", []))
         for t in turns:
@@ -300,6 +303,9 @@ def run_batch(audio_dir: str, model_size: str = "base", reuse_reports: bool = Fa
     for iv in sdata.get("interviews", []):
         src_name = iv.get("source") or iv.get("stem") or "unknown"
         iv["source"] = src_name
+        if src_name in rec_roles:
+            iv["recording_speaker_roles"] = rec_roles[src_name]
+            iv["recording_speaker_role_sources"] = rec_role_sources[src_name]
         kept_for_iv = []
         for idx, h in enumerate(iv.get("hotspots", []), 1):
             turns = h.get("turns", [])
@@ -318,11 +324,12 @@ def run_batch(audio_dir: str, model_size: str = "base", reuse_reports: bool = Fa
                 t["speaker"] = sp
                 t["addressee"] = t.get("addressee") or "ALL"
                 t["thread_id"] = t.get("thread_id") or "T_TOPIC_1"
+                t["greedy_thread_id"] = t.get("greedy_thread_id") or t["thread_id"]
                 combined_txt.append(t["text"])
                 utts.append(make_utt(
                     turn_id=i, speaker_id=sp, text=t["text"],
                     timestamp=float(t.get("start", st + i * 2.0)),
-                    addressee=t["addressee"], thread_id=t["thread_id"]
+                    addressee=t["addressee"], thread_id=t["greedy_thread_id"]   # Bi-CL refines in-session
                 ))
 
             analysis = run_engine_session(engine, f"{src_name}_h{idx}", utts, rec_roles.get(src_name))
@@ -351,6 +358,8 @@ def run_batch(audio_dir: str, model_size: str = "base", reuse_reports: bool = Fa
         "unique_net_substantive_turns": len(seen_turns),
         "unique_golden_hotspots": len(dedup_hotspots),
         "recording_speaker_roles": rec_roles,
+        "recording_speaker_role_sources": rec_role_sources,
+        "gift_graph_inferred_roles": rec_graph_roles,
     }
     sample_path.write_text(json.dumps(sdata, ensure_ascii=False, indent=2), encoding="utf-8")
     (out_dir / "corpus_merged_report.json").write_text(

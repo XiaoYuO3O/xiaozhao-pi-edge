@@ -93,6 +93,48 @@
       "speaker_3": "prefilled"
     },
     "mintrec_transitions": [],
+    "gift_graph_summary": {
+      "edge_counts": {
+        "reply-to": 0,
+        "replied-by": 0,
+        "reply-self": 2,
+        "indirect-reply": 2
+      },
+      "edge_weights_phi": {
+        "reply-self": 1.0,
+        "reply-to": 0.92,
+        "replied-by": 0.88,
+        "indirect-reply": 0.45
+      },
+      "replied_by_amendments": 0,
+      "intent_amendments": [],
+      "graph_inferred_roles": {},
+      "graph_role_evidence": {},
+      "graph_induced_transitions": 0,
+      "anchor_turn_topology": {
+        "turn_id": 1,
+        "basis": "issue_trigger",
+        "reply_to_turn_id": null,
+        "replied_by_turn_ids": []
+      }
+    },
+    "bi_cl_disentangle_summary": {
+      "substantive_turns": 2,
+      "k_upper_bound": 2,
+      "raw_greedy_threads": 1,
+      "raw_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "estimated_k": 1,
+      "refined_prototype_threads": 1,
+      "refined_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "prototype_cohesion_score": 0.754,
+      "raw_cohesion_score": 0.754,
+      "reassigned_turns": [],
+      "em_iterations": 1
+    },
     "turns_detail": [
       {
         "turn_id": 1,
@@ -105,6 +147,8 @@
         "thread_id": "T_TASK_MAIN",
         "source_thread_id": "T_TASK_MAIN",
         "mintrec_fine": "Arrange",
+        "gift_fine": "Arrange",
+        "gift_reply_to": null,
         "text": "居服員小姐，待會麻煩順便幫我買兩盒普拿疼止痛藥好嗎？"
       },
       {
@@ -118,6 +162,8 @@
         "thread_id": "T_CHITCHAT",
         "source_thread_id": "T_CHITCHAT",
         "mintrec_fine": "Complain",
+        "gift_fine": "Complain",
+        "gift_reply_to": null,
         "text": "今天中午的排骨便當菜色很鹹欸，電視八點檔又在重播。"
       },
       {
@@ -131,6 +177,8 @@
         "thread_id": "T_TASK_MAIN",
         "source_thread_id": "T_TASK_MAIN",
         "mintrec_fine": "Inform",
+        "gift_fine": "Inform",
+        "gift_reply_to": null,
         "text": "小照，家屬剛剛說的那樣可以嗎？"
       }
     ]
@@ -242,6 +290,50 @@
       "speaker_3": "prefilled"
     },
     "mintrec_transitions": [],
+    "gift_graph_summary": {
+      "edge_counts": {
+        "reply-to": 2,
+        "replied-by": 2,
+        "reply-self": 3,
+        "indirect-reply": 2
+      },
+      "edge_weights_phi": {
+        "reply-self": 1.0,
+        "reply-to": 0.92,
+        "replied-by": 0.88,
+        "indirect-reply": 0.45
+      },
+      "replied_by_amendments": 0,
+      "intent_amendments": [],
+      "graph_inferred_roles": {},
+      "graph_role_evidence": {},
+      "graph_induced_transitions": 0,
+      "anchor_turn_topology": {
+        "turn_id": 2,
+        "basis": "issue_trigger",
+        "reply_to_turn_id": 1,
+        "replied_by_turn_ids": [
+          3
+        ]
+      }
+    },
+    "bi_cl_disentangle_summary": {
+      "substantive_turns": 3,
+      "k_upper_bound": 2,
+      "raw_greedy_threads": 1,
+      "raw_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "estimated_k": 1,
+      "refined_prototype_threads": 1,
+      "refined_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "prototype_cohesion_score": 0.628,
+      "raw_cohesion_score": 0.628,
+      "reassigned_turns": [],
+      "em_iterations": 1
+    },
     "turns_detail": [
       {
         "turn_id": 1,
@@ -254,6 +346,8 @@
         "thread_id": "T_TASK_MAIN",
         "source_thread_id": "T_TASK_MAIN",
         "mintrec_fine": "Comfort",
+        "gift_fine": "Comfort",
+        "gift_reply_to": null,
         "text": "來，幫我洗私密處，順便摸一下大腿沒關係吧。"
       },
       {
@@ -267,6 +361,8 @@
         "thread_id": "T_TASK_MAIN",
         "source_thread_id": "T_TASK_MAIN",
         "mintrec_fine": "Arrange",
+        "gift_fine": "Arrange",
+        "gift_reply_to": 1,
         "text": "洗完澡順便幫我們把外面那間廁所跟馬桶刷一刷喔。"
       },
       {
@@ -280,6 +376,8 @@
         "thread_id": "T_TASK_MAIN",
         "source_thread_id": "T_TASK_MAIN",
         "mintrec_fine": "Complain",
+        "gift_fine": "Complain",
+        "gift_reply_to": 2,
         "text": "小照，剛剛長輩摸大腿性騷擾，而且家屬又要求順便刷馬桶，我要回報！"
       }
     ]
@@ -352,6 +450,48 @@
       "speaker_3": "prefilled"
     },
     "mintrec_transitions": [],
+    "gift_graph_summary": {
+      "edge_counts": {
+        "reply-to": 0,
+        "replied-by": 0,
+        "reply-self": 1,
+        "indirect-reply": 0
+      },
+      "edge_weights_phi": {
+        "reply-self": 1.0,
+        "reply-to": 0.92,
+        "replied-by": 0.88,
+        "indirect-reply": 0.45
+      },
+      "replied_by_amendments": 0,
+      "intent_amendments": [],
+      "graph_inferred_roles": {},
+      "graph_role_evidence": {},
+      "graph_induced_transitions": 0,
+      "anchor_turn_topology": {
+        "turn_id": 1,
+        "basis": "issue_trigger",
+        "reply_to_turn_id": null,
+        "replied_by_turn_ids": []
+      }
+    },
+    "bi_cl_disentangle_summary": {
+      "substantive_turns": 1,
+      "k_upper_bound": 2,
+      "raw_greedy_threads": 1,
+      "raw_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "estimated_k": 1,
+      "refined_prototype_threads": 1,
+      "refined_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "prototype_cohesion_score": 0.0,
+      "raw_cohesion_score": 0.0,
+      "reassigned_turns": [],
+      "em_iterations": 1
+    },
     "turns_detail": [
       {
         "turn_id": 1,
@@ -364,6 +504,8 @@
         "thread_id": "T_TASK_MAIN",
         "source_thread_id": "T_TASK_MAIN",
         "mintrec_fine": "Ask_for_help",
+        "gift_fine": "Ask_for_help",
+        "gift_reply_to": null,
         "text": "小照，案家在山區結果外面有四隻咬人狗圍住，而且路有點淹水我進不去怎麼辦？"
       }
     ]
@@ -423,6 +565,48 @@
       "speaker_3": "prefilled"
     },
     "mintrec_transitions": [],
+    "gift_graph_summary": {
+      "edge_counts": {
+        "reply-to": 0,
+        "replied-by": 0,
+        "reply-self": 1,
+        "indirect-reply": 0
+      },
+      "edge_weights_phi": {
+        "reply-self": 1.0,
+        "reply-to": 0.92,
+        "replied-by": 0.88,
+        "indirect-reply": 0.45
+      },
+      "replied_by_amendments": 0,
+      "intent_amendments": [],
+      "graph_inferred_roles": {},
+      "graph_role_evidence": {},
+      "graph_induced_transitions": 0,
+      "anchor_turn_topology": {
+        "turn_id": 1,
+        "basis": "session_trigger",
+        "reply_to_turn_id": null,
+        "replied_by_turn_ids": []
+      }
+    },
+    "bi_cl_disentangle_summary": {
+      "substantive_turns": 1,
+      "k_upper_bound": 2,
+      "raw_greedy_threads": 1,
+      "raw_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "estimated_k": 1,
+      "refined_prototype_threads": 1,
+      "refined_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "prototype_cohesion_score": 0.0,
+      "raw_cohesion_score": 0.0,
+      "reassigned_turns": [],
+      "em_iterations": 1
+    },
     "turns_detail": [
       {
         "turn_id": 1,
@@ -435,6 +619,8 @@
         "thread_id": "T_TASK_MAIN",
         "source_thread_id": "T_TASK_MAIN",
         "mintrec_fine": "Ask_for_help",
+        "gift_fine": "Ask_for_help",
+        "gift_reply_to": null,
         "text": "小照救命！長輩在浴室跌倒而且昏倒流血了！"
       }
     ]
@@ -519,6 +705,48 @@
       "speaker_3": "prefilled"
     },
     "mintrec_transitions": [],
+    "gift_graph_summary": {
+      "edge_counts": {
+        "reply-to": 1,
+        "replied-by": 1,
+        "reply-self": 2,
+        "indirect-reply": 0
+      },
+      "edge_weights_phi": {
+        "reply-self": 1.0,
+        "reply-to": 0.92,
+        "replied-by": 0.88,
+        "indirect-reply": 0.45
+      },
+      "replied_by_amendments": 0,
+      "intent_amendments": [],
+      "graph_inferred_roles": {},
+      "graph_role_evidence": {},
+      "graph_induced_transitions": 0,
+      "anchor_turn_topology": {
+        "turn_id": 3,
+        "basis": "session_trigger",
+        "reply_to_turn_id": 1,
+        "replied_by_turn_ids": []
+      }
+    },
+    "bi_cl_disentangle_summary": {
+      "substantive_turns": 2,
+      "k_upper_bound": 2,
+      "raw_greedy_threads": 1,
+      "raw_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "estimated_k": 1,
+      "refined_prototype_threads": 1,
+      "refined_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "prototype_cohesion_score": 0.777,
+      "raw_cohesion_score": 0.777,
+      "reassigned_turns": [],
+      "em_iterations": 1
+    },
     "turns_detail": [
       {
         "turn_id": 1,
@@ -531,6 +759,8 @@
         "thread_id": "T_TASK_MAIN",
         "source_thread_id": "T_TASK_MAIN",
         "mintrec_fine": "Arrange",
+        "gift_fine": "Arrange",
+        "gift_reply_to": null,
         "text": "我們下禮拜想申請 GA09 喘息服務跟 SC09 短照，麻煩幫我們填紀錄表。"
       },
       {
@@ -544,6 +774,8 @@
         "thread_id": "T_CHITCHAT",
         "source_thread_id": "T_CHITCHAT",
         "mintrec_fine": "UNK",
+        "gift_fine": "UNK",
+        "gift_reply_to": null,
         "text": "今天午餐的雞腿便當冷掉了不好吃。"
       },
       {
@@ -557,6 +789,8 @@
         "thread_id": "T_TASK_MAIN",
         "source_thread_id": "T_TASK_MAIN",
         "mintrec_fine": "Inform",
+        "gift_fine": "Inform",
+        "gift_reply_to": 1,
         "text": "小照，家屬剛剛說的那個喘息短照要開哪張表單？"
       }
     ]

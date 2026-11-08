@@ -8,7 +8,7 @@
       "duration_mmss": "32:11",
       "raw_segments": 1132,
       "merged_turns": 241,
-      "content_threads": 5,
+      "content_threads": 3,
       "backchannel_noise_turns": 84,
       "mintrec_unk_rate": 0.278,
       "recording_speaker_roles": {
@@ -64,6 +64,10 @@
           "thread_interleaves": 3,
           "threads": [
             "T_TOPIC_1",
+            "T_TOPIC_3"
+          ],
+          "greedy_threads": [
+            "T_TOPIC_1",
             "T_TOPIC_2",
             "T_TOPIC_3"
           ],
@@ -76,7 +80,8 @@
               "speaker": "speaker_2",
               "addressee": "speaker_1",
               "addressee_reason": "aba_turn_taking",
-              "thread_id": "T_TOPIC_2",
+              "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "現在是想要收集說收集上說先前人",
               "mintrec_fine": "Inform",
               "domain_intents": [],
@@ -91,6 +96,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "多元需求說他的經驗是什麼然後我們可以把它累積下來然後累積下來以後其他的督導或照服員",
               "mintrec_fine": "Advise",
               "domain_intents": [
@@ -108,6 +114,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "qa_latch",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "問AI說這樣的情況怎麼處理這樣我曾經遇過我的夥伴問我說我要拿這一條可以喝然後再放點頭卡他說就像我們去掃狗狗的在培養去殺死來看。可是這個是你在培訓過程中老師沒有教導。",
               "mintrec_fine": "Ask_for_help",
               "domain_intents": [],
@@ -122,6 +129,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "qa_latch",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "就是可能一些生活上的機制院。",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -136,6 +144,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "qa_latch",
               "thread_id": "T_TOPIC_3",
+              "greedy_thread_id": "T_TOPIC_3",
               "text": "為什麼他會問,因為這是他的工作。",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -150,6 +159,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "qa_latch",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "如果是我們的家人,他們就會去拿土來把它掃棄。我想說老師是不是也...可以,我們可以把他放進多元項目。",
               "mintrec_fine": "Advise",
               "domain_intents": [
@@ -167,6 +177,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "因為有時候我們可能外法也在騎車,沒辦法第一解決居服員的問題。居服員的問題是他會很緊張然後只要我們的語氣完了他就要好好的工作",
               "mintrec_fine": "Complain",
               "domain_intents": [],
@@ -239,6 +250,25 @@
             },
             "mintrec_transitions": [
               {
+                "type": "REPORT_TO_ACTION_PLAN",
+                "thread_id": "T_TOPIC_1",
+                "from_turn": 1,
+                "to_turn": 2,
+                "from_speaker": "speaker_2",
+                "to_speaker": "speaker_1",
+                "from_role": "caregiver_照服員",
+                "to_role": "supervisor_居督",
+                "from_fine": "Inform",
+                "to_fine": "Advise",
+                "lag": 1,
+                "priority": "NORMAL",
+                "live_hazard": false,
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "gift_weight": 0.92
+              },
+              {
                 "type": "PROBLEM_TO_GUIDANCE",
                 "thread_id": "T_TOPIC_1",
                 "from_turn": 3,
@@ -249,12 +279,108 @@
                 "to_role": "caregiver_照服員",
                 "from_fine": "Ask_for_help",
                 "to_fine": "Advise",
-                "lag": 2,
+                "lag": 3,
                 "priority": "NORMAL",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "indirect-reply",
+                "gift_phi": 0.45,
+                "gift_weight": 0.45
+              },
+              {
+                "type": "PROBLEM_TO_GUIDANCE",
+                "thread_id": "T_TOPIC_1",
+                "from_turn": 5,
+                "to_turn": 6,
+                "from_speaker": "speaker_1",
+                "to_speaker": "speaker_2",
+                "from_role": "supervisor_居督",
+                "to_role": "caregiver_照服員",
+                "from_fine": "Ask_for_help",
+                "to_fine": "Advise",
+                "lag": 1,
+                "priority": "NORMAL",
+                "live_hazard": false,
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "graph_induced": true,
+                "gift_weight": 1.38
               }
             ],
+            "gift_graph_summary": {
+              "edge_counts": {
+                "reply-to": 6,
+                "replied-by": 6,
+                "reply-self": 7,
+                "indirect-reply": 30
+              },
+              "edge_weights_phi": {
+                "reply-self": 1.0,
+                "reply-to": 0.92,
+                "replied-by": 0.88,
+                "indirect-reply": 0.45
+              },
+              "replied_by_amendments": 2,
+              "intent_amendments": [
+                {
+                  "turn_id": 1,
+                  "from_fine": "Inform",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 2
+                },
+                {
+                  "turn_id": 5,
+                  "from_fine": "UNK",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 6
+                }
+              ],
+              "graph_inferred_roles": {},
+              "graph_role_evidence": {},
+              "graph_induced_transitions": 1,
+              "anchor_turn_topology": {
+                "turn_id": 3,
+                "basis": "issue_trigger",
+                "reply_to_turn_id": 2,
+                "replied_by_turn_ids": [
+                  4,
+                  5
+                ]
+              }
+            },
+            "bi_cl_disentangle_summary": {
+              "substantive_turns": 7,
+              "k_upper_bound": 2,
+              "raw_greedy_threads": 3,
+              "raw_thread_ids": [
+                "T_TOPIC_1",
+                "T_TOPIC_2",
+                "T_TOPIC_3"
+              ],
+              "estimated_k": 1,
+              "refined_prototype_threads": 1,
+              "refined_thread_ids": [
+                "T_TOPIC_1"
+              ],
+              "prototype_cohesion_score": 0.489,
+              "raw_cohesion_score": 0.342,
+              "reassigned_turns": [
+                {
+                  "turn_id": 1,
+                  "from": "T_TOPIC_2",
+                  "to": "T_TOPIC_1"
+                },
+                {
+                  "turn_id": 5,
+                  "from": "T_TOPIC_3",
+                  "to": "T_TOPIC_1"
+                }
+              ],
+              "em_iterations": 1
+            },
             "cross_turn_fusion": {
               "dominant_threads": [
                 "T_TOPIC_1"
@@ -312,8 +438,8 @@
                 }
               ],
               "participating_roles": [
-                "supervisor_居督",
-                "caregiver_照服員"
+                "caregiver_照服員",
+                "supervisor_居督"
               ],
               "participating_speakers": [
                 "speaker_1",
@@ -321,6 +447,8 @@
                 "speaker_3"
               ],
               "transition_types": [
+                "REPORT_TO_ACTION_PLAN",
+                "PROBLEM_TO_GUIDANCE",
                 "PROBLEM_TO_GUIDANCE"
               ],
               "consensus_state": "CONSENSUS_ACTIONABLE"
@@ -416,8 +544,8 @@
                   }
                 ],
                 "participating_roles": [
-                  "supervisor_居督",
-                  "caregiver_照服員"
+                  "caregiver_照服員",
+                  "supervisor_居督"
                 ],
                 "participating_speakers": [
                   "speaker_1",
@@ -425,6 +553,8 @@
                   "speaker_3"
                 ],
                 "transition_types": [
+                  "REPORT_TO_ACTION_PLAN",
+                  "PROBLEM_TO_GUIDANCE",
                   "PROBLEM_TO_GUIDANCE"
                 ],
                 "consensus_state": "CONSENSUS_ACTIONABLE"
@@ -500,6 +630,25 @@
             },
             "mintrec_transitions": [
               {
+                "type": "REPORT_TO_ACTION_PLAN",
+                "thread_id": "T_TOPIC_1",
+                "from_turn": 1,
+                "to_turn": 2,
+                "from_speaker": "speaker_2",
+                "to_speaker": "speaker_1",
+                "from_role": "caregiver_照服員",
+                "to_role": "supervisor_居督",
+                "from_fine": "Inform",
+                "to_fine": "Advise",
+                "lag": 1,
+                "priority": "NORMAL",
+                "live_hazard": false,
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "gift_weight": 0.92
+              },
+              {
                 "type": "PROBLEM_TO_GUIDANCE",
                 "thread_id": "T_TOPIC_1",
                 "from_turn": 3,
@@ -510,12 +659,108 @@
                 "to_role": "caregiver_照服員",
                 "from_fine": "Ask_for_help",
                 "to_fine": "Advise",
-                "lag": 2,
+                "lag": 3,
                 "priority": "NORMAL",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "indirect-reply",
+                "gift_phi": 0.45,
+                "gift_weight": 0.45
+              },
+              {
+                "type": "PROBLEM_TO_GUIDANCE",
+                "thread_id": "T_TOPIC_1",
+                "from_turn": 5,
+                "to_turn": 6,
+                "from_speaker": "speaker_1",
+                "to_speaker": "speaker_2",
+                "from_role": "supervisor_居督",
+                "to_role": "caregiver_照服員",
+                "from_fine": "Ask_for_help",
+                "to_fine": "Advise",
+                "lag": 1,
+                "priority": "NORMAL",
+                "live_hazard": false,
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "graph_induced": true,
+                "gift_weight": 1.38
               }
             ],
+            "gift_graph_summary": {
+              "edge_counts": {
+                "reply-to": 6,
+                "replied-by": 6,
+                "reply-self": 7,
+                "indirect-reply": 30
+              },
+              "edge_weights_phi": {
+                "reply-self": 1.0,
+                "reply-to": 0.92,
+                "replied-by": 0.88,
+                "indirect-reply": 0.45
+              },
+              "replied_by_amendments": 2,
+              "intent_amendments": [
+                {
+                  "turn_id": 1,
+                  "from_fine": "Inform",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 2
+                },
+                {
+                  "turn_id": 5,
+                  "from_fine": "UNK",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 6
+                }
+              ],
+              "graph_inferred_roles": {},
+              "graph_role_evidence": {},
+              "graph_induced_transitions": 1,
+              "anchor_turn_topology": {
+                "turn_id": 3,
+                "basis": "issue_trigger",
+                "reply_to_turn_id": 2,
+                "replied_by_turn_ids": [
+                  4,
+                  5
+                ]
+              }
+            },
+            "bi_cl_disentangle_summary": {
+              "substantive_turns": 7,
+              "k_upper_bound": 2,
+              "raw_greedy_threads": 3,
+              "raw_thread_ids": [
+                "T_TOPIC_1",
+                "T_TOPIC_2",
+                "T_TOPIC_3"
+              ],
+              "estimated_k": 1,
+              "refined_prototype_threads": 1,
+              "refined_thread_ids": [
+                "T_TOPIC_1"
+              ],
+              "prototype_cohesion_score": 0.489,
+              "raw_cohesion_score": 0.342,
+              "reassigned_turns": [
+                {
+                  "turn_id": 1,
+                  "from": "T_TOPIC_2",
+                  "to": "T_TOPIC_1"
+                },
+                {
+                  "turn_id": 5,
+                  "from": "T_TOPIC_3",
+                  "to": "T_TOPIC_1"
+                }
+              ],
+              "em_iterations": 1
+            },
             "turns_detail": [
               {
                 "turn_id": 1,
@@ -526,8 +771,10 @@
                 "addressee_speaker": "speaker_1",
                 "who_to_whom_role": "caregiver_照服員 -> supervisor_居督",
                 "thread_id": "T_TASK_MAIN",
-                "source_thread_id": "T_TOPIC_2",
+                "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Ask_for_help",
+                "gift_reply_to": null,
                 "text": "現在是想要收集說收集上說先前人"
               },
               {
@@ -541,6 +788,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Advise",
+                "gift_fine": "Advise",
+                "gift_reply_to": 1,
                 "text": "多元需求說他的經驗是什麼然後我們可以把它累積下來然後累積下來以後其他的督導或照服員"
               },
               {
@@ -554,6 +803,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Ask_for_help",
+                "gift_fine": "Ask_for_help",
+                "gift_reply_to": 2,
                 "text": "問AI說這樣的情況怎麼處理這樣我曾經遇過我的夥伴問我說我要拿這一條可以喝然後再放點頭卡他說就像我們去掃狗狗的在培養去殺死來看。可是這個是你在培訓過程中老師沒有教導。"
               },
               {
@@ -567,6 +818,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "UNK",
+                "gift_fine": "UNK",
+                "gift_reply_to": 3,
                 "text": "就是可能一些生活上的機制院。"
               },
               {
@@ -578,8 +831,10 @@
                 "addressee_speaker": "speaker_3",
                 "who_to_whom_role": "supervisor_居督 -> caregiver_照服員",
                 "thread_id": "T_TASK_MAIN",
-                "source_thread_id": "T_TOPIC_3",
+                "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "UNK",
+                "gift_fine": "Ask_for_help",
+                "gift_reply_to": 3,
                 "text": "為什麼他會問,因為這是他的工作。"
               },
               {
@@ -593,6 +848,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Advise",
+                "gift_fine": "Advise",
+                "gift_reply_to": 5,
                 "text": "如果是我們的家人,他們就會去拿土來把它掃棄。我想說老師是不是也...可以,我們可以把他放進多元項目。"
               },
               {
@@ -606,6 +863,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Complain",
+                "gift_fine": "Complain",
+                "gift_reply_to": 6,
                 "text": "因為有時候我們可能外法也在騎車,沒辦法第一解決居服員的問題。居服員的問題是他會很緊張然後只要我們的語氣完了他就要好好的工作"
               }
             ]
@@ -627,6 +886,9 @@
           "speaker_switches": 6,
           "thread_interleaves": 2,
           "threads": [
+            "T_TOPIC_1"
+          ],
+          "greedy_threads": [
             "T_TOPIC_1",
             "T_TOPIC_4"
           ],
@@ -640,6 +902,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "我跟那個督導講一下基本上你們寫的文字",
               "mintrec_fine": "Inform",
               "domain_intents": [
@@ -656,6 +919,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "其實他們也沒有細看",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -670,6 +934,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "但是AI會細看他們的後端是",
               "mintrec_fine": "Inform",
               "domain_intents": [],
@@ -683,7 +948,8 @@
               "speaker": "speaker_3",
               "addressee": "speaker_2",
               "addressee_reason": "adjacency",
-              "thread_id": "T_TOPIC_4",
+              "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_4",
               "text": "這個很不要偏技術面",
               "mintrec_fine": "Prevent",
               "domain_intents": [],
@@ -698,6 +964,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "現在AI已經可以幫你建AI知識庫了只要你為文字進去之後他會幫你做很多的切片他會幫你做組合他會幫你做生成所以只要那個督導們把這些紀錄提供給那個學生們我們現在後端的那個知識庫系統就可以把它整理成那個條列式的那你現在只要後面",
               "mintrec_fine": "Inform",
               "domain_intents": [
@@ -714,6 +981,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "只要問到關鍵字",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -728,6 +996,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "比如說家屬猝逝或家屬去世或是家屬怎麼樣他會把例如說家屬跟去世這兩個字組合起來然後他就進知識庫去問然後就要把房子",
               "mintrec_fine": "Ask_for_help",
               "domain_intents": [
@@ -744,6 +1013,7 @@
               "addressee": "ALL",
               "addressee_reason": "broadcast",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "現在AI已經非常厲害了現在我們後端都是AI知識庫人體那我現在只是要跟這個督導們說明說我們現在去",
               "mintrec_fine": "Praise",
               "domain_intents": [
@@ -760,6 +1030,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "功能剛才講了那三個功能我們把它建進去那再來就是我們可能需要這個督導們的這些歷史經驗然後這些歷史經驗可能我請大家回去之後再開發一個介面出來然後他就可以去記錄這個這個裡面的內容",
               "mintrec_fine": "Arrange",
               "domain_intents": [
@@ -848,6 +1119,70 @@
               "speaker_3": "recording_prior"
             },
             "mintrec_transitions": [],
+            "gift_graph_summary": {
+              "edge_counts": {
+                "reply-to": 8,
+                "replied-by": 8,
+                "reply-self": 9,
+                "indirect-reply": 56
+              },
+              "edge_weights_phi": {
+                "reply-self": 1.0,
+                "reply-to": 0.92,
+                "replied-by": 0.88,
+                "indirect-reply": 0.45
+              },
+              "replied_by_amendments": 2,
+              "intent_amendments": [
+                {
+                  "turn_id": 1,
+                  "from_fine": "Inform",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 5
+                },
+                {
+                  "turn_id": 6,
+                  "from_fine": "UNK",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 7
+                }
+              ],
+              "graph_inferred_roles": {},
+              "graph_role_evidence": {},
+              "graph_induced_transitions": 0,
+              "anchor_turn_topology": {
+                "turn_id": 7,
+                "basis": "issue_trigger",
+                "reply_to_turn_id": 6,
+                "replied_by_turn_ids": []
+              }
+            },
+            "bi_cl_disentangle_summary": {
+              "substantive_turns": 9,
+              "k_upper_bound": 2,
+              "raw_greedy_threads": 2,
+              "raw_thread_ids": [
+                "T_TOPIC_1",
+                "T_TOPIC_4"
+              ],
+              "estimated_k": 1,
+              "refined_prototype_threads": 1,
+              "refined_thread_ids": [
+                "T_TOPIC_1"
+              ],
+              "prototype_cohesion_score": 0.56,
+              "raw_cohesion_score": 0.479,
+              "reassigned_turns": [
+                {
+                  "turn_id": 4,
+                  "from": "T_TOPIC_4",
+                  "to": "T_TOPIC_1"
+                }
+              ],
+              "em_iterations": 2
+            },
             "cross_turn_fusion": {
               "dominant_threads": [
                 "T_TOPIC_1"
@@ -886,7 +1221,8 @@
               ],
               "participating_speakers": [
                 "speaker_1",
-                "speaker_2"
+                "speaker_2",
+                "speaker_3"
               ],
               "transition_types": [],
               "consensus_state": "CONSENSUS_ACTIONABLE"
@@ -968,7 +1304,8 @@
                 ],
                 "participating_speakers": [
                   "speaker_1",
-                  "speaker_2"
+                  "speaker_2",
+                  "speaker_3"
                 ],
                 "transition_types": [],
                 "consensus_state": "CONSENSUS_ACTIONABLE"
@@ -1056,6 +1393,70 @@
               "speaker_3": "recording_prior"
             },
             "mintrec_transitions": [],
+            "gift_graph_summary": {
+              "edge_counts": {
+                "reply-to": 8,
+                "replied-by": 8,
+                "reply-self": 9,
+                "indirect-reply": 56
+              },
+              "edge_weights_phi": {
+                "reply-self": 1.0,
+                "reply-to": 0.92,
+                "replied-by": 0.88,
+                "indirect-reply": 0.45
+              },
+              "replied_by_amendments": 2,
+              "intent_amendments": [
+                {
+                  "turn_id": 1,
+                  "from_fine": "Inform",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 5
+                },
+                {
+                  "turn_id": 6,
+                  "from_fine": "UNK",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 7
+                }
+              ],
+              "graph_inferred_roles": {},
+              "graph_role_evidence": {},
+              "graph_induced_transitions": 0,
+              "anchor_turn_topology": {
+                "turn_id": 7,
+                "basis": "issue_trigger",
+                "reply_to_turn_id": 6,
+                "replied_by_turn_ids": []
+              }
+            },
+            "bi_cl_disentangle_summary": {
+              "substantive_turns": 9,
+              "k_upper_bound": 2,
+              "raw_greedy_threads": 2,
+              "raw_thread_ids": [
+                "T_TOPIC_1",
+                "T_TOPIC_4"
+              ],
+              "estimated_k": 1,
+              "refined_prototype_threads": 1,
+              "refined_thread_ids": [
+                "T_TOPIC_1"
+              ],
+              "prototype_cohesion_score": 0.56,
+              "raw_cohesion_score": 0.479,
+              "reassigned_turns": [
+                {
+                  "turn_id": 4,
+                  "from": "T_TOPIC_4",
+                  "to": "T_TOPIC_1"
+                }
+              ],
+              "em_iterations": 2
+            },
             "turns_detail": [
               {
                 "turn_id": 1,
@@ -1068,6 +1469,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Ask_for_help",
+                "gift_reply_to": null,
                 "text": "我跟那個督導講一下基本上你們寫的文字"
               },
               {
@@ -1081,6 +1484,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "UNK",
+                "gift_fine": "UNK",
+                "gift_reply_to": 1,
                 "text": "其實他們也沒有細看"
               },
               {
@@ -1094,6 +1499,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Inform",
+                "gift_reply_to": 1,
                 "text": "但是AI會細看他們的後端是"
               },
               {
@@ -1105,8 +1512,10 @@
                 "addressee_speaker": "speaker_2",
                 "who_to_whom_role": "supervisor_居督 -> researcher_主持團隊",
                 "thread_id": "T_TASK_MAIN",
-                "source_thread_id": "T_TOPIC_4",
+                "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Prevent",
+                "gift_fine": "Prevent",
+                "gift_reply_to": 3,
                 "text": "這個很不要偏技術面"
               },
               {
@@ -1120,6 +1529,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Inform",
+                "gift_reply_to": 1,
                 "text": "現在AI已經可以幫你建AI知識庫了只要你為文字進去之後他會幫你做很多的切片他會幫你做組合他會幫你做生成所以只要那個督導們把這些紀錄提供給那個學生們我們現在後端的那個知識庫系統就可以把它整理成那個條列式的那你現在只要後面"
               },
               {
@@ -1133,6 +1544,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "UNK",
+                "gift_fine": "Ask_for_help",
+                "gift_reply_to": 5,
                 "text": "只要問到關鍵字"
               },
               {
@@ -1146,6 +1559,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Ask_for_help",
+                "gift_fine": "Ask_for_help",
+                "gift_reply_to": 6,
                 "text": "比如說家屬猝逝或家屬去世或是家屬怎麼樣他會把例如說家屬跟去世這兩個字組合起來然後他就進知識庫去問然後就要把房子"
               },
               {
@@ -1159,6 +1574,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Praise",
+                "gift_fine": "Praise",
+                "gift_reply_to": 6,
                 "text": "現在AI已經非常厲害了現在我們後端都是AI知識庫人體那我現在只是要跟這個督導們說明說我們現在去"
               },
               {
@@ -1172,6 +1589,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Arrange",
+                "gift_fine": "Arrange",
+                "gift_reply_to": 4,
                 "text": "功能剛才講了那三個功能我們把它建進去那再來就是我們可能需要這個督導們的這些歷史經驗然後這些歷史經驗可能我請大家回去之後再開發一個介面出來然後他就可以去記錄這個這個裡面的內容"
               }
             ]
@@ -1196,6 +1615,9 @@
           "threads": [
             "T_TOPIC_1"
           ],
+          "greedy_threads": [
+            "T_TOPIC_1"
+          ],
           "turns": [
             {
               "turn_id": 117,
@@ -1206,6 +1628,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "qa_latch",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "那只要以後他們問就可以了我覺得剛我們督導講類似督立境界",
               "mintrec_fine": "Advise",
               "domain_intents": [
@@ -1222,6 +1645,7 @@
               "addressee": "ALL",
               "addressee_reason": "broadcast",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "那個我被設計因為我剛思考一下像剛我們說的暴力性騷我是說什麼",
               "mintrec_fine": "Complain",
               "domain_intents": [
@@ -1238,6 +1662,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "qa_latch",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "經驗也不用見了因為這個都是第一時間非常緊急的是",
               "mintrec_fine": "Inform",
               "domain_intents": [
@@ -1254,6 +1679,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "還有車沒前面車",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -1268,6 +1694,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "沒有就你說那個經驗你就他馬上回課通話聯繫你就他馬上聯繫緊急就就馬不管他因為不同他類似要做一個對講機的功能",
               "mintrec_fine": "Arrange",
               "domain_intents": [
@@ -1285,6 +1712,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "就是說按下去之後",
               "mintrec_fine": "Inform",
               "domain_intents": [],
@@ -1299,6 +1727,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "然後對方的那個居督那邊他就可以立刻",
               "mintrec_fine": "Inform",
               "domain_intents": [],
@@ -1313,6 +1742,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "手機就可以按",
               "mintrec_fine": "Agree",
               "domain_intents": [],
@@ -1327,6 +1757,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "震動或者說手機",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -1341,6 +1772,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "想起來但是這個會要幾個問題要考慮就說可能對話居督正在講話中怎麼做那個他就是要有一個",
               "mintrec_fine": "Arrange",
               "domain_intents": [],
@@ -1355,6 +1787,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "qa_latch",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "緊急對講機的功能",
               "mintrec_fine": "Inform",
               "domain_intents": [
@@ -1371,6 +1804,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "qa_latch",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "國家類似國家舉方那種",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -1491,7 +1925,10 @@
                 "lag": 1,
                 "priority": "PROTOCOL_DESIGN_DISCUSSION",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "gift_weight": 2.76
               },
               {
                 "type": "REPORT_TO_ACTION_PLAN",
@@ -1507,7 +1944,30 @@
                 "lag": 2,
                 "priority": "NORMAL",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "indirect-reply",
+                "gift_phi": 0.45,
+                "gift_weight": 0.45
+              },
+              {
+                "type": "REPORT_TO_ACTION_PLAN",
+                "thread_id": "T_TOPIC_1",
+                "from_turn": 4,
+                "to_turn": 5,
+                "from_speaker": "speaker_1",
+                "to_speaker": "speaker_3",
+                "from_role": "supervisor_居督",
+                "to_role": "supervisor_居督",
+                "from_fine": "Inform",
+                "to_fine": "Arrange",
+                "lag": 1,
+                "priority": "NORMAL",
+                "live_hazard": false,
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "graph_induced": true,
+                "gift_weight": 1.38
               },
               {
                 "type": "REQUEST_TO_COMPLIANCE_OR_HESITATION",
@@ -1523,7 +1983,10 @@
                 "lag": 3,
                 "priority": "HIGH_RAG_INTERVENTION",
                 "live_hazard": false,
-                "rag_intervention": true
+                "rag_intervention": true,
+                "gift_edge": "indirect-reply",
+                "gift_phi": 0.45,
+                "gift_weight": 0.9
               },
               {
                 "type": "REPORT_TO_ACTION_PLAN",
@@ -1539,7 +2002,10 @@
                 "lag": 3,
                 "priority": "NORMAL",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "indirect-reply",
+                "gift_phi": 0.45,
+                "gift_weight": 0.45
               },
               {
                 "type": "REQUEST_TO_COMPLIANCE_OR_HESITATION",
@@ -1555,9 +2021,71 @@
                 "lag": 2,
                 "priority": "HIGH_RAG_INTERVENTION",
                 "live_hazard": false,
-                "rag_intervention": true
+                "rag_intervention": true,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "gift_weight": 1.84
               }
             ],
+            "gift_graph_summary": {
+              "edge_counts": {
+                "reply-to": 10,
+                "replied-by": 10,
+                "reply-self": 12,
+                "indirect-reply": 112
+              },
+              "edge_weights_phi": {
+                "reply-self": 1.0,
+                "reply-to": 0.92,
+                "replied-by": 0.88,
+                "indirect-reply": 0.45
+              },
+              "replied_by_amendments": 2,
+              "intent_amendments": [
+                {
+                  "turn_id": 3,
+                  "from_fine": "Inform",
+                  "gift_fine": "Advise",
+                  "via": "reply-to",
+                  "evidence_turn": 2
+                },
+                {
+                  "turn_id": 4,
+                  "from_fine": "UNK",
+                  "gift_fine": "Inform",
+                  "via": "replied-by",
+                  "evidence_turn": 5
+                }
+              ],
+              "graph_inferred_roles": {},
+              "graph_role_evidence": {},
+              "graph_induced_transitions": 1,
+              "anchor_turn_topology": {
+                "turn_id": 2,
+                "basis": "issue_trigger",
+                "reply_to_turn_id": null,
+                "replied_by_turn_ids": [
+                  3
+                ]
+              }
+            },
+            "bi_cl_disentangle_summary": {
+              "substantive_turns": 12,
+              "k_upper_bound": 2,
+              "raw_greedy_threads": 1,
+              "raw_thread_ids": [
+                "T_TOPIC_1"
+              ],
+              "estimated_k": 1,
+              "refined_prototype_threads": 1,
+              "refined_thread_ids": [
+                "T_TOPIC_1"
+              ],
+              "prototype_cohesion_score": 0.448,
+              "raw_cohesion_score": 0.448,
+              "reassigned_turns": [],
+              "em_iterations": 1
+            },
             "cross_turn_fusion": {
               "dominant_threads": [
                 "T_TOPIC_1"
@@ -1614,6 +2142,7 @@
               ],
               "transition_types": [
                 "CRISIS_ESCALATION_CHAIN",
+                "REPORT_TO_ACTION_PLAN",
                 "REPORT_TO_ACTION_PLAN",
                 "REQUEST_TO_COMPLIANCE_OR_HESITATION",
                 "REPORT_TO_ACTION_PLAN",
@@ -1723,6 +2252,7 @@
                 ],
                 "transition_types": [
                   "CRISIS_ESCALATION_CHAIN",
+                  "REPORT_TO_ACTION_PLAN",
                   "REPORT_TO_ACTION_PLAN",
                   "REQUEST_TO_COMPLIANCE_OR_HESITATION",
                   "REPORT_TO_ACTION_PLAN",
@@ -1845,7 +2375,10 @@
                 "lag": 1,
                 "priority": "PROTOCOL_DESIGN_DISCUSSION",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "gift_weight": 2.76
               },
               {
                 "type": "REPORT_TO_ACTION_PLAN",
@@ -1861,7 +2394,30 @@
                 "lag": 2,
                 "priority": "NORMAL",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "indirect-reply",
+                "gift_phi": 0.45,
+                "gift_weight": 0.45
+              },
+              {
+                "type": "REPORT_TO_ACTION_PLAN",
+                "thread_id": "T_TOPIC_1",
+                "from_turn": 4,
+                "to_turn": 5,
+                "from_speaker": "speaker_1",
+                "to_speaker": "speaker_3",
+                "from_role": "supervisor_居督",
+                "to_role": "supervisor_居督",
+                "from_fine": "Inform",
+                "to_fine": "Arrange",
+                "lag": 1,
+                "priority": "NORMAL",
+                "live_hazard": false,
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "graph_induced": true,
+                "gift_weight": 1.38
               },
               {
                 "type": "REQUEST_TO_COMPLIANCE_OR_HESITATION",
@@ -1877,7 +2433,10 @@
                 "lag": 3,
                 "priority": "HIGH_RAG_INTERVENTION",
                 "live_hazard": false,
-                "rag_intervention": true
+                "rag_intervention": true,
+                "gift_edge": "indirect-reply",
+                "gift_phi": 0.45,
+                "gift_weight": 0.9
               },
               {
                 "type": "REPORT_TO_ACTION_PLAN",
@@ -1893,7 +2452,10 @@
                 "lag": 3,
                 "priority": "NORMAL",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "indirect-reply",
+                "gift_phi": 0.45,
+                "gift_weight": 0.45
               },
               {
                 "type": "REQUEST_TO_COMPLIANCE_OR_HESITATION",
@@ -1909,9 +2471,71 @@
                 "lag": 2,
                 "priority": "HIGH_RAG_INTERVENTION",
                 "live_hazard": false,
-                "rag_intervention": true
+                "rag_intervention": true,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "gift_weight": 1.84
               }
             ],
+            "gift_graph_summary": {
+              "edge_counts": {
+                "reply-to": 10,
+                "replied-by": 10,
+                "reply-self": 12,
+                "indirect-reply": 112
+              },
+              "edge_weights_phi": {
+                "reply-self": 1.0,
+                "reply-to": 0.92,
+                "replied-by": 0.88,
+                "indirect-reply": 0.45
+              },
+              "replied_by_amendments": 2,
+              "intent_amendments": [
+                {
+                  "turn_id": 3,
+                  "from_fine": "Inform",
+                  "gift_fine": "Advise",
+                  "via": "reply-to",
+                  "evidence_turn": 2
+                },
+                {
+                  "turn_id": 4,
+                  "from_fine": "UNK",
+                  "gift_fine": "Inform",
+                  "via": "replied-by",
+                  "evidence_turn": 5
+                }
+              ],
+              "graph_inferred_roles": {},
+              "graph_role_evidence": {},
+              "graph_induced_transitions": 1,
+              "anchor_turn_topology": {
+                "turn_id": 2,
+                "basis": "issue_trigger",
+                "reply_to_turn_id": null,
+                "replied_by_turn_ids": [
+                  3
+                ]
+              }
+            },
+            "bi_cl_disentangle_summary": {
+              "substantive_turns": 12,
+              "k_upper_bound": 2,
+              "raw_greedy_threads": 1,
+              "raw_thread_ids": [
+                "T_TOPIC_1"
+              ],
+              "estimated_k": 1,
+              "refined_prototype_threads": 1,
+              "refined_thread_ids": [
+                "T_TOPIC_1"
+              ],
+              "prototype_cohesion_score": 0.448,
+              "raw_cohesion_score": 0.448,
+              "reassigned_turns": [],
+              "em_iterations": 1
+            },
             "turns_detail": [
               {
                 "turn_id": 1,
@@ -1924,6 +2548,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Advise",
+                "gift_fine": "Advise",
+                "gift_reply_to": null,
                 "text": "那只要以後他們問就可以了我覺得剛我們督導講類似督立境界"
               },
               {
@@ -1937,6 +2563,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Complain",
+                "gift_fine": "Complain",
+                "gift_reply_to": null,
                 "text": "那個我被設計因為我剛思考一下像剛我們說的暴力性騷我是說什麼"
               },
               {
@@ -1950,6 +2578,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Advise",
+                "gift_reply_to": 2,
                 "text": "經驗也不用見了因為這個都是第一時間非常緊急的是"
               },
               {
@@ -1963,6 +2593,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "UNK",
+                "gift_fine": "Inform",
+                "gift_reply_to": 3,
                 "text": "還有車沒前面車"
               },
               {
@@ -1976,6 +2608,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Arrange",
+                "gift_fine": "Arrange",
+                "gift_reply_to": 4,
                 "text": "沒有就你說那個經驗你就他馬上回課通話聯繫你就他馬上聯繫緊急就就馬不管他因為不同他類似要做一個對講機的功能"
               },
               {
@@ -1989,6 +2623,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Inform",
+                "gift_reply_to": 5,
                 "text": "就是說按下去之後"
               },
               {
@@ -2002,6 +2638,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Inform",
+                "gift_reply_to": 6,
                 "text": "然後對方的那個居督那邊他就可以立刻"
               },
               {
@@ -2015,6 +2653,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Agree",
+                "gift_fine": "Agree",
+                "gift_reply_to": 7,
                 "text": "手機就可以按"
               },
               {
@@ -2028,6 +2668,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "UNK",
+                "gift_fine": "UNK",
+                "gift_reply_to": 8,
                 "text": "震動或者說手機"
               },
               {
@@ -2041,6 +2683,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Arrange",
+                "gift_fine": "Arrange",
+                "gift_reply_to": 8,
                 "text": "想起來但是這個會要幾個問題要考慮就說可能對話居督正在講話中怎麼做那個他就是要有一個"
               },
               {
@@ -2054,6 +2698,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Inform",
+                "gift_reply_to": 10,
                 "text": "緊急對講機的功能"
               },
               {
@@ -2067,6 +2713,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "UNK",
+                "gift_fine": "UNK",
+                "gift_reply_to": 10,
                 "text": "國家類似國家舉方那種"
               }
             ]
@@ -2078,14 +2726,19 @@
             "EXPERIENCE_KB_CONTRIBUTION"
           ]
         }
-      ]
+      ],
+      "recording_speaker_role_sources": {
+        "speaker_1": "session_cues",
+        "speaker_2": "session_cues",
+        "speaker_3": "session_cues"
+      }
     },
     {
       "source": "interview2",
       "duration_mmss": "51:39",
       "raw_segments": 797,
       "merged_turns": 234,
-      "content_threads": 13,
+      "content_threads": 9,
       "backchannel_noise_turns": 63,
       "mintrec_unk_rate": 0.363,
       "recording_speaker_roles": {
@@ -2136,6 +2789,9 @@
           "threads": [
             "T_TOPIC_10"
           ],
+          "greedy_threads": [
+            "T_TOPIC_10"
+          ],
           "turns": [
             {
               "turn_id": 139,
@@ -2146,6 +2802,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "qa_latch",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "因為刑法譬如說你說傷害嘛你都被打了其實少這是屬於刑法但是你如果要細分什麼法律所以我覺得還細看因為應該他好像應該有",
               "mintrec_fine": "Advise",
               "domain_intents": [],
@@ -2160,6 +2817,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "qa_latch",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "可以乾脆直接把這個刑法丟進去",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -2174,6 +2832,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "可以沒有問題對 那可能你就問他說譬如說我們被案家或案主暴力了",
               "mintrec_fine": "Complain",
               "domain_intents": [],
@@ -2188,6 +2847,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "或是別女公子的性騷什麼他應該就可以直接抓到還可以秀場給大家",
               "mintrec_fine": "Advise",
               "domain_intents": [
@@ -2204,6 +2864,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "qa_latch",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "沒問題就OK啦",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -2218,6 +2879,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "這個都OK 那個AI很厲害",
               "mintrec_fine": "Praise",
               "domain_intents": [],
@@ -2232,6 +2894,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "對 你就趕緊把什麼刑法法條給你去應該 因為法規太多",
               "mintrec_fine": "Advise",
               "domain_intents": [
@@ -2248,6 +2911,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "qa_latch",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "其實我們的目標就是為嘉安量身打造對 我是要",
               "mintrec_fine": "Introduce",
               "domain_intents": [
@@ -2264,6 +2928,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "就是 嘉安如果有什麼需求",
               "mintrec_fine": "UNK",
               "domain_intents": [
@@ -2280,6 +2945,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "qa_latch",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "我們就把他讓AI去做出因為 區域本頻道問題就像你剛剛提的最簡單的嘛比如說 道理之間我們請教什麼對啊 如果說有些人不知道比較微暗你之前",
               "mintrec_fine": "Inform",
               "domain_intents": [],
@@ -2294,6 +2960,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "qa_latch",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "這個還是要提到當然",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -2404,9 +3071,64 @@
                 "lag": 1,
                 "priority": "NORMAL",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "gift_weight": 0.92
               }
             ],
+            "gift_graph_summary": {
+              "edge_counts": {
+                "reply-to": 10,
+                "replied-by": 10,
+                "reply-self": 11,
+                "indirect-reply": 90
+              },
+              "edge_weights_phi": {
+                "reply-self": 1.0,
+                "reply-to": 0.92,
+                "replied-by": 0.88,
+                "indirect-reply": 0.45
+              },
+              "replied_by_amendments": 1,
+              "intent_amendments": [
+                {
+                  "turn_id": 2,
+                  "from_fine": "UNK",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 3
+                }
+              ],
+              "graph_inferred_roles": {},
+              "graph_role_evidence": {},
+              "graph_induced_transitions": 0,
+              "anchor_turn_topology": {
+                "turn_id": 1,
+                "basis": "issue_trigger",
+                "reply_to_turn_id": null,
+                "replied_by_turn_ids": [
+                  2
+                ]
+              }
+            },
+            "bi_cl_disentangle_summary": {
+              "substantive_turns": 11,
+              "k_upper_bound": 2,
+              "raw_greedy_threads": 1,
+              "raw_thread_ids": [
+                "T_TOPIC_10"
+              ],
+              "estimated_k": 1,
+              "refined_prototype_threads": 1,
+              "refined_thread_ids": [
+                "T_TOPIC_10"
+              ],
+              "prototype_cohesion_score": 0.452,
+              "raw_cohesion_score": 0.452,
+              "reassigned_turns": [],
+              "em_iterations": 1
+            },
             "cross_turn_fusion": {
               "dominant_threads": [
                 "T_TOPIC_10"
@@ -2680,9 +3402,64 @@
                 "lag": 1,
                 "priority": "NORMAL",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "gift_weight": 0.92
               }
             ],
+            "gift_graph_summary": {
+              "edge_counts": {
+                "reply-to": 10,
+                "replied-by": 10,
+                "reply-self": 11,
+                "indirect-reply": 90
+              },
+              "edge_weights_phi": {
+                "reply-self": 1.0,
+                "reply-to": 0.92,
+                "replied-by": 0.88,
+                "indirect-reply": 0.45
+              },
+              "replied_by_amendments": 1,
+              "intent_amendments": [
+                {
+                  "turn_id": 2,
+                  "from_fine": "UNK",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 3
+                }
+              ],
+              "graph_inferred_roles": {},
+              "graph_role_evidence": {},
+              "graph_induced_transitions": 0,
+              "anchor_turn_topology": {
+                "turn_id": 1,
+                "basis": "issue_trigger",
+                "reply_to_turn_id": null,
+                "replied_by_turn_ids": [
+                  2
+                ]
+              }
+            },
+            "bi_cl_disentangle_summary": {
+              "substantive_turns": 11,
+              "k_upper_bound": 2,
+              "raw_greedy_threads": 1,
+              "raw_thread_ids": [
+                "T_TOPIC_10"
+              ],
+              "estimated_k": 1,
+              "refined_prototype_threads": 1,
+              "refined_thread_ids": [
+                "T_TOPIC_10"
+              ],
+              "prototype_cohesion_score": 0.452,
+              "raw_cohesion_score": 0.452,
+              "reassigned_turns": [],
+              "em_iterations": 1
+            },
             "turns_detail": [
               {
                 "turn_id": 1,
@@ -2695,6 +3472,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Advise",
+                "gift_fine": "Advise",
+                "gift_reply_to": null,
                 "text": "因為刑法譬如說你說傷害嘛你都被打了其實少這是屬於刑法但是你如果要細分什麼法律所以我覺得還細看因為應該他好像應該有"
               },
               {
@@ -2708,6 +3487,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "UNK",
+                "gift_fine": "Ask_for_help",
+                "gift_reply_to": 1,
                 "text": "可以乾脆直接把這個刑法丟進去"
               },
               {
@@ -2721,6 +3502,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Complain",
+                "gift_fine": "Complain",
+                "gift_reply_to": 2,
                 "text": "可以沒有問題對 那可能你就問他說譬如說我們被案家或案主暴力了"
               },
               {
@@ -2734,6 +3517,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Advise",
+                "gift_fine": "Advise",
+                "gift_reply_to": 3,
                 "text": "或是別女公子的性騷什麼他應該就可以直接抓到還可以秀場給大家"
               },
               {
@@ -2747,6 +3532,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "UNK",
+                "gift_fine": "UNK",
+                "gift_reply_to": 4,
                 "text": "沒問題就OK啦"
               },
               {
@@ -2760,6 +3547,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Praise",
+                "gift_fine": "Praise",
+                "gift_reply_to": 5,
                 "text": "這個都OK 那個AI很厲害"
               },
               {
@@ -2773,6 +3562,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Advise",
+                "gift_fine": "Advise",
+                "gift_reply_to": 6,
                 "text": "對 你就趕緊把什麼刑法法條給你去應該 因為法規太多"
               },
               {
@@ -2786,6 +3577,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Introduce",
+                "gift_fine": "Introduce",
+                "gift_reply_to": 7,
                 "text": "其實我們的目標就是為嘉安量身打造對 我是要"
               },
               {
@@ -2799,6 +3592,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "UNK",
+                "gift_fine": "UNK",
+                "gift_reply_to": 8,
                 "text": "就是 嘉安如果有什麼需求"
               },
               {
@@ -2812,6 +3607,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Inform",
+                "gift_reply_to": 9,
                 "text": "我們就把他讓AI去做出因為 區域本頻道問題就像你剛剛提的最簡單的嘛比如說 道理之間我們請教什麼對啊 如果說有些人不知道比較微暗你之前"
               },
               {
@@ -2825,6 +3622,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "UNK",
+                "gift_fine": "UNK",
+                "gift_reply_to": 10,
                 "text": "這個還是要提到當然"
               }
             ]
@@ -2848,6 +3647,9 @@
           "threads": [
             "T_TOPIC_10"
           ],
+          "greedy_threads": [
+            "T_TOPIC_10"
+          ],
           "turns": [
             {
               "turn_id": 216,
@@ -2858,6 +3660,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "那應該可以跟您二十多不行",
               "mintrec_fine": "Prevent",
               "domain_intents": [],
@@ -2872,6 +3675,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "那後來就來跟您二十多不是,那是因為參數的問題這我會就有給我大概講一個是他可以跟他不合理他在做資料搜尋之後",
               "mintrec_fine": "Oppose",
               "domain_intents": [],
@@ -2886,6 +3690,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "我後旋向這我不願意再跟您同還要請問我可以跟您二十多",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -2900,6 +3705,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "那,我想時間太久了",
               "mintrec_fine": "Leave",
               "domain_intents": [],
@@ -2914,6 +3720,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "我想讓主任跟督導都辛苦那我覺得我們下次會議就今天在一個小時之內",
               "mintrec_fine": "Leave",
               "domain_intents": [
@@ -2930,6 +3737,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "不要讓這麼多的細節可以發散出來那我們今天大概就大家我先做個小結",
               "mintrec_fine": "Prevent",
               "domain_intents": [],
@@ -2944,6 +3752,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "是照服員端要有緊急鈕的功能然後現在緊急的又就在延伸出來",
               "mintrec_fine": "Inform",
               "domain_intents": [
@@ -2960,6 +3769,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "我們要有一個緊急控制的APP然後再來我們需要有一個多元選項",
               "mintrec_fine": "Arrange",
               "domain_intents": [
@@ -2977,6 +3787,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "我們需要有多元問題的選項是紀錄把其他服務項目之外那第三個我們要補充服務項目就是SC跟紀錄的項目然後再來就是這是照服員動我們要去做加強的那再來就是剛才有一個問題沒有平常就是照服員端的語音輸入現在是需要",
               "mintrec_fine": "Arrange",
               "domain_intents": [
@@ -3081,9 +3892,54 @@
                 "lag": 1,
                 "priority": "NORMAL",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "gift_weight": 0.92
               }
             ],
+            "gift_graph_summary": {
+              "edge_counts": {
+                "reply-to": 8,
+                "replied-by": 8,
+                "reply-self": 9,
+                "indirect-reply": 56
+              },
+              "edge_weights_phi": {
+                "reply-self": 1.0,
+                "reply-to": 0.92,
+                "replied-by": 0.88,
+                "indirect-reply": 0.45
+              },
+              "replied_by_amendments": 0,
+              "intent_amendments": [],
+              "graph_inferred_roles": {},
+              "graph_role_evidence": {},
+              "graph_induced_transitions": 0,
+              "anchor_turn_topology": {
+                "turn_id": 9,
+                "basis": "session_trigger",
+                "reply_to_turn_id": 8,
+                "replied_by_turn_ids": []
+              }
+            },
+            "bi_cl_disentangle_summary": {
+              "substantive_turns": 9,
+              "k_upper_bound": 2,
+              "raw_greedy_threads": 1,
+              "raw_thread_ids": [
+                "T_TOPIC_10"
+              ],
+              "estimated_k": 1,
+              "refined_prototype_threads": 1,
+              "refined_thread_ids": [
+                "T_TOPIC_10"
+              ],
+              "prototype_cohesion_score": 0.409,
+              "raw_cohesion_score": 0.409,
+              "reassigned_turns": [],
+              "em_iterations": 1
+            },
             "cross_turn_fusion": {
               "dominant_threads": [
                 "T_TOPIC_10"
@@ -3315,9 +4171,54 @@
                 "lag": 1,
                 "priority": "NORMAL",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "gift_weight": 0.92
               }
             ],
+            "gift_graph_summary": {
+              "edge_counts": {
+                "reply-to": 8,
+                "replied-by": 8,
+                "reply-self": 9,
+                "indirect-reply": 56
+              },
+              "edge_weights_phi": {
+                "reply-self": 1.0,
+                "reply-to": 0.92,
+                "replied-by": 0.88,
+                "indirect-reply": 0.45
+              },
+              "replied_by_amendments": 0,
+              "intent_amendments": [],
+              "graph_inferred_roles": {},
+              "graph_role_evidence": {},
+              "graph_induced_transitions": 0,
+              "anchor_turn_topology": {
+                "turn_id": 9,
+                "basis": "session_trigger",
+                "reply_to_turn_id": 8,
+                "replied_by_turn_ids": []
+              }
+            },
+            "bi_cl_disentangle_summary": {
+              "substantive_turns": 9,
+              "k_upper_bound": 2,
+              "raw_greedy_threads": 1,
+              "raw_thread_ids": [
+                "T_TOPIC_10"
+              ],
+              "estimated_k": 1,
+              "refined_prototype_threads": 1,
+              "refined_thread_ids": [
+                "T_TOPIC_10"
+              ],
+              "prototype_cohesion_score": 0.409,
+              "raw_cohesion_score": 0.409,
+              "reassigned_turns": [],
+              "em_iterations": 1
+            },
             "turns_detail": [
               {
                 "turn_id": 1,
@@ -3330,6 +4231,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Prevent",
+                "gift_fine": "Prevent",
+                "gift_reply_to": null,
                 "text": "那應該可以跟您二十多不行"
               },
               {
@@ -3343,6 +4246,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Oppose",
+                "gift_fine": "Oppose",
+                "gift_reply_to": 1,
                 "text": "那後來就來跟您二十多不是,那是因為參數的問題這我會就有給我大概講一個是他可以跟他不合理他在做資料搜尋之後"
               },
               {
@@ -3356,6 +4261,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "UNK",
+                "gift_fine": "UNK",
+                "gift_reply_to": 2,
                 "text": "我後旋向這我不願意再跟您同還要請問我可以跟您二十多"
               },
               {
@@ -3369,6 +4276,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Leave",
+                "gift_fine": "Leave",
+                "gift_reply_to": 3,
                 "text": "那,我想時間太久了"
               },
               {
@@ -3382,6 +4291,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Leave",
+                "gift_fine": "Leave",
+                "gift_reply_to": 4,
                 "text": "我想讓主任跟督導都辛苦那我覺得我們下次會議就今天在一個小時之內"
               },
               {
@@ -3395,6 +4306,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Prevent",
+                "gift_fine": "Prevent",
+                "gift_reply_to": 5,
                 "text": "不要讓這麼多的細節可以發散出來那我們今天大概就大家我先做個小結"
               },
               {
@@ -3408,6 +4321,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Inform",
+                "gift_reply_to": 6,
                 "text": "是照服員端要有緊急鈕的功能然後現在緊急的又就在延伸出來"
               },
               {
@@ -3421,6 +4336,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Arrange",
+                "gift_fine": "Arrange",
+                "gift_reply_to": 7,
                 "text": "我們要有一個緊急控制的APP然後再來我們需要有一個多元選項"
               },
               {
@@ -3434,6 +4351,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Arrange",
+                "gift_fine": "Arrange",
+                "gift_reply_to": 8,
                 "text": "我們需要有多元問題的選項是紀錄把其他服務項目之外那第三個我們要補充服務項目就是SC跟紀錄的項目然後再來就是這是照服員動我們要去做加強的那再來就是剛才有一個問題沒有平常就是照服員端的語音輸入現在是需要"
               }
             ]
@@ -3458,6 +4377,11 @@
           "threads": [
             "T_TOPIC_10",
             "T_TOPIC_11",
+            "T_TOPIC_12"
+          ],
+          "greedy_threads": [
+            "T_TOPIC_10",
+            "T_TOPIC_11",
             "T_TOPIC_12",
             "T_TOPIC_13"
           ],
@@ -3471,6 +4395,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_11",
+              "greedy_thread_id": "T_TOPIC_11",
               "text": "不是現在學生用的是每個月只有200",
               "mintrec_fine": "Oppose",
               "domain_intents": [],
@@ -3485,6 +4410,7 @@
               "addressee": "ALL",
               "addressee_reason": "broadcast",
               "thread_id": "T_TOPIC_12",
+              "greedy_thread_id": "T_TOPIC_12",
               "text": "現在就做實驗",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -3499,6 +4425,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "那如果說後續真的按鍵大的時候就不需要就是",
               "mintrec_fine": "Inform",
               "domain_intents": [],
@@ -3513,6 +4440,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "賣工師現在我覺得研究一下說",
               "mintrec_fine": "Advise",
               "domain_intents": [],
@@ -3527,6 +4455,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "怎麼讓緊急事件",
               "mintrec_fine": "Inform",
               "domain_intents": [
@@ -3542,7 +4471,8 @@
               "speaker": "speaker_3",
               "addressee": "speaker_2",
               "addressee_reason": "aba_turn_taking",
-              "thread_id": "T_TOPIC_13",
+              "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_13",
               "text": "免費了25年他發揮最大的效益這個",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -3557,6 +4487,7 @@
               "addressee": "ALL",
               "addressee_reason": "broadcast",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "如果說這個是這個",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -3571,6 +4502,7 @@
               "addressee": "ALL",
               "addressee_reason": "broadcast",
               "thread_id": "T_TOPIC_10",
+              "greedy_thread_id": "T_TOPIC_10",
               "text": "方式是開發一個類似像早安早安主動每天八部去做然後時間到他就7點抓全世界",
               "mintrec_fine": "Arrange",
               "domain_intents": [],
@@ -3661,9 +4593,88 @@
                 "lag": 1,
                 "priority": "NORMAL",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "gift_weight": 0.92
               }
             ],
+            "gift_graph_summary": {
+              "edge_counts": {
+                "reply-to": 6,
+                "replied-by": 6,
+                "reply-self": 8,
+                "indirect-reply": 44
+              },
+              "edge_weights_phi": {
+                "reply-self": 1.0,
+                "reply-to": 0.92,
+                "replied-by": 0.88,
+                "indirect-reply": 0.45
+              },
+              "replied_by_amendments": 2,
+              "intent_amendments": [
+                {
+                  "turn_id": 2,
+                  "from_fine": "UNK",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 3
+                },
+                {
+                  "turn_id": 3,
+                  "from_fine": "Inform",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 4
+                }
+              ],
+              "graph_inferred_roles": {},
+              "graph_role_evidence": {},
+              "graph_induced_transitions": 0,
+              "anchor_turn_topology": {
+                "turn_id": 5,
+                "basis": "issue_trigger",
+                "reply_to_turn_id": 4,
+                "replied_by_turn_ids": []
+              }
+            },
+            "bi_cl_disentangle_summary": {
+              "substantive_turns": 8,
+              "k_upper_bound": 2,
+              "raw_greedy_threads": 4,
+              "raw_thread_ids": [
+                "T_TOPIC_10",
+                "T_TOPIC_11",
+                "T_TOPIC_12",
+                "T_TOPIC_13"
+              ],
+              "estimated_k": 1,
+              "refined_prototype_threads": 1,
+              "refined_thread_ids": [
+                "T_TOPIC_10"
+              ],
+              "prototype_cohesion_score": 0.38,
+              "raw_cohesion_score": 0.259,
+              "reassigned_turns": [
+                {
+                  "turn_id": 1,
+                  "from": "T_TOPIC_11",
+                  "to": "T_TOPIC_10"
+                },
+                {
+                  "turn_id": 2,
+                  "from": "T_TOPIC_12",
+                  "to": "T_TOPIC_10"
+                },
+                {
+                  "turn_id": 6,
+                  "from": "T_TOPIC_13",
+                  "to": "T_TOPIC_10"
+                }
+              ],
+              "em_iterations": 1
+            },
             "cross_turn_fusion": {
               "dominant_threads": [
                 "T_TOPIC_10"
@@ -3697,8 +4708,8 @@
                 }
               ],
               "participating_roles": [
-                "director_主任",
-                "researcher_主持團隊"
+                "researcher_主持團隊",
+                "director_主任"
               ],
               "participating_speakers": [
                 "speaker_2",
@@ -3778,8 +4789,8 @@
                   }
                 ],
                 "participating_roles": [
-                  "director_主任",
-                  "researcher_主持團隊"
+                  "researcher_主持團隊",
+                  "director_主任"
                 ],
                 "participating_speakers": [
                   "speaker_2",
@@ -3878,9 +4889,88 @@
                 "lag": 1,
                 "priority": "NORMAL",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "gift_weight": 0.92
               }
             ],
+            "gift_graph_summary": {
+              "edge_counts": {
+                "reply-to": 6,
+                "replied-by": 6,
+                "reply-self": 8,
+                "indirect-reply": 44
+              },
+              "edge_weights_phi": {
+                "reply-self": 1.0,
+                "reply-to": 0.92,
+                "replied-by": 0.88,
+                "indirect-reply": 0.45
+              },
+              "replied_by_amendments": 2,
+              "intent_amendments": [
+                {
+                  "turn_id": 2,
+                  "from_fine": "UNK",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 3
+                },
+                {
+                  "turn_id": 3,
+                  "from_fine": "Inform",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 4
+                }
+              ],
+              "graph_inferred_roles": {},
+              "graph_role_evidence": {},
+              "graph_induced_transitions": 0,
+              "anchor_turn_topology": {
+                "turn_id": 5,
+                "basis": "issue_trigger",
+                "reply_to_turn_id": 4,
+                "replied_by_turn_ids": []
+              }
+            },
+            "bi_cl_disentangle_summary": {
+              "substantive_turns": 8,
+              "k_upper_bound": 2,
+              "raw_greedy_threads": 4,
+              "raw_thread_ids": [
+                "T_TOPIC_10",
+                "T_TOPIC_11",
+                "T_TOPIC_12",
+                "T_TOPIC_13"
+              ],
+              "estimated_k": 1,
+              "refined_prototype_threads": 1,
+              "refined_thread_ids": [
+                "T_TOPIC_10"
+              ],
+              "prototype_cohesion_score": 0.38,
+              "raw_cohesion_score": 0.259,
+              "reassigned_turns": [
+                {
+                  "turn_id": 1,
+                  "from": "T_TOPIC_11",
+                  "to": "T_TOPIC_10"
+                },
+                {
+                  "turn_id": 2,
+                  "from": "T_TOPIC_12",
+                  "to": "T_TOPIC_10"
+                },
+                {
+                  "turn_id": 6,
+                  "from": "T_TOPIC_13",
+                  "to": "T_TOPIC_10"
+                }
+              ],
+              "em_iterations": 1
+            },
             "turns_detail": [
               {
                 "turn_id": 1,
@@ -3891,8 +4981,10 @@
                 "addressee_speaker": "speaker_3",
                 "who_to_whom_role": "researcher_主持團隊 -> director_主任",
                 "thread_id": "T_TASK_MAIN",
-                "source_thread_id": "T_TOPIC_11",
+                "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Oppose",
+                "gift_fine": "Oppose",
+                "gift_reply_to": null,
                 "text": "不是現在學生用的是每個月只有200"
               },
               {
@@ -3904,8 +4996,10 @@
                 "addressee_speaker": "ALL",
                 "who_to_whom_role": "researcher_主持團隊 -> ALL",
                 "thread_id": "T_TASK_MAIN",
-                "source_thread_id": "T_TOPIC_12",
+                "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "UNK",
+                "gift_fine": "Ask_for_help",
+                "gift_reply_to": null,
                 "text": "現在就做實驗"
               },
               {
@@ -3919,6 +5013,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Ask_for_help",
+                "gift_reply_to": 2,
                 "text": "那如果說後續真的按鍵大的時候就不需要就是"
               },
               {
@@ -3932,6 +5028,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Advise",
+                "gift_fine": "Advise",
+                "gift_reply_to": 3,
                 "text": "賣工師現在我覺得研究一下說"
               },
               {
@@ -3945,6 +5043,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Inform",
+                "gift_reply_to": 4,
                 "text": "怎麼讓緊急事件"
               },
               {
@@ -3956,8 +5056,10 @@
                 "addressee_speaker": "speaker_2",
                 "who_to_whom_role": "director_主任 -> researcher_主持團隊",
                 "thread_id": "T_TASK_MAIN",
-                "source_thread_id": "T_TOPIC_13",
+                "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "UNK",
+                "gift_fine": "UNK",
+                "gift_reply_to": 4,
                 "text": "免費了25年他發揮最大的效益這個"
               },
               {
@@ -3971,6 +5073,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "UNK",
+                "gift_fine": "UNK",
+                "gift_reply_to": 4,
                 "text": "如果說這個是這個"
               },
               {
@@ -3984,6 +5088,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_10",
                 "mintrec_fine": "Arrange",
+                "gift_fine": "Arrange",
+                "gift_reply_to": 4,
                 "text": "方式是開發一個類似像早安早安主動每天八部去做然後時間到他就7點抓全世界"
               }
             ]
@@ -3993,20 +5099,25 @@
             "EMERGENCY_BUTTON_ESCALATION"
           ]
         }
-      ]
+      ],
+      "recording_speaker_role_sources": {
+        "speaker_1": "session_cues",
+        "speaker_2": "session_cues",
+        "speaker_3": "session_cues"
+      }
     },
     {
       "source": "interview3_full",
       "duration_mmss": "133:13",
       "raw_segments": 3853,
       "merged_turns": 834,
-      "content_threads": 12,
+      "content_threads": 4,
       "backchannel_noise_turns": 219,
       "mintrec_unk_rate": 0.387,
       "recording_speaker_roles": {
         "speaker_1": "researcher_主持團隊",
         "speaker_2": "director_主任",
-        "speaker_3": "unknown"
+        "speaker_3": "supervisor_居督"
       },
       "domain_intent_counts": {
         "SUPERVISOR_DIVERSE_FEEDBACK": 50,
@@ -4061,6 +5172,9 @@
           "speaker_switches": 10,
           "thread_interleaves": 6,
           "threads": [
+            "T_TOPIC_2"
+          ],
+          "greedy_threads": [
             "T_TOPIC_1",
             "T_TOPIC_2",
             "T_TOPIC_6"
@@ -4075,6 +5189,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "因為一開始我們都知道每一個人的聲紋",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -4089,6 +5204,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "如果說後續使用的聲紋很多的話我們可以把每一個人的聲紋記錄下來然後聲紋記錄下來之後我們這邊就不用再判斷了這是一開始一開始因為我們要先確定一下收集一下每個人的聲紋可是聲紋可能會沒有吧",
               "mintrec_fine": "Arrange",
               "domain_intents": [],
@@ -4103,6 +5219,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "因為家屬都是會變來變去的",
               "mintrec_fine": "Inform",
               "domain_intents": [],
@@ -4116,7 +5233,8 @@
               "speaker": "speaker_1",
               "addressee": "speaker_3",
               "addressee_reason": "adjacency",
-              "thread_id": "T_TOPIC_6",
+              "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_6",
               "text": "會慢慢累積會慢慢累積",
               "mintrec_fine": "UNK",
               "domain_intents": [
@@ -4133,6 +5251,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "我們都可以去變身的聲紋資料戶",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -4147,6 +5266,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "我是覺得你們錄音下來",
               "mintrec_fine": "Introduce",
               "domain_intents": [
@@ -4162,7 +5282,8 @@
               "speaker": "speaker_2",
               "addressee": "speaker_3",
               "addressee_reason": "aba_turn_taking",
-              "thread_id": "T_TOPIC_1",
+              "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "可以直接寫字在後台文字我覺得這個就可以了就是可能變成我們後面要去把A或B自己分",
               "mintrec_fine": "Advise",
               "domain_intents": [],
@@ -4177,6 +5298,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "你如果說要收集生活這個個人覺得很困難因為第一家屬很多就比如說我今天像我有什麼一天有四個案子好四個案裡面它不可能只有一個家屬它如果又有三個家屬然後三個家屬可能又有孫子通知",
               "mintrec_fine": "Complain",
               "domain_intents": [],
@@ -4190,7 +5312,8 @@
               "speaker": "speaker_1",
               "addressee": "speaker_3",
               "addressee_reason": "qa_latch",
-              "thread_id": "T_TOPIC_1",
+              "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "就會變成是你這個",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -4205,6 +5328,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "qa_latch",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "就會變成是你這個,這個當處就會收集過,我們三個人就不分我覺得。",
               "mintrec_fine": "Advise",
               "domain_intents": [],
@@ -4219,6 +5343,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "不會有,他一個案子就是,你們現在在這個,你們現在在這場的生活,在跳到下一個案,他就在收集他們的生活,所以你不會這十幾個,特案的十幾個家屬,都會染這位。",
               "mintrec_fine": "Inform",
               "domain_intents": [],
@@ -4306,14 +5431,53 @@
             "speaker_roles": {
               "speaker_1": "researcher_主持團隊",
               "speaker_2": "director_主任",
-              "speaker_3": "unknown"
+              "speaker_3": "supervisor_居督"
             },
             "speaker_role_sources": {
               "speaker_1": "recording_prior",
               "speaker_2": "recording_prior",
-              "speaker_3": "no_evidence"
+              "speaker_3": "recording_prior"
             },
             "mintrec_transitions": [
+              {
+                "type": "REPORT_TO_ACTION_PLAN",
+                "thread_id": "T_TOPIC_2",
+                "from_turn": 1,
+                "to_turn": 2,
+                "from_speaker": "speaker_1",
+                "to_speaker": "speaker_2",
+                "from_role": "researcher_主持團隊",
+                "to_role": "director_主任",
+                "from_fine": "Inform",
+                "to_fine": "Arrange",
+                "lag": 1,
+                "priority": "NORMAL",
+                "live_hazard": false,
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "graph_induced": true,
+                "gift_weight": 1.38
+              },
+              {
+                "type": "REQUEST_TO_COMPLIANCE_OR_HESITATION",
+                "thread_id": "T_TOPIC_2",
+                "from_turn": 2,
+                "to_turn": 4,
+                "from_speaker": "speaker_2",
+                "to_speaker": "speaker_1",
+                "from_role": "director_主任",
+                "to_role": "researcher_主持團隊",
+                "from_fine": "Arrange",
+                "to_fine": "UNK",
+                "lag": 2,
+                "priority": "HIGH_RAG_INTERVENTION",
+                "live_hazard": false,
+                "rag_intervention": true,
+                "gift_edge": "indirect-reply",
+                "gift_phi": 0.45,
+                "gift_weight": 0.9
+              },
               {
                 "type": "PROBLEM_TO_GUIDANCE",
                 "thread_id": "T_TOPIC_2",
@@ -4321,16 +5485,103 @@
                 "to_turn": 10,
                 "from_speaker": "speaker_3",
                 "to_speaker": "speaker_2",
-                "from_role": "unknown",
+                "from_role": "supervisor_居督",
                 "to_role": "director_主任",
                 "from_fine": "Complain",
                 "to_fine": "Advise",
-                "lag": 1,
+                "lag": 2,
                 "priority": "NORMAL",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "gift_weight": 0.92
               }
             ],
+            "gift_graph_summary": {
+              "edge_counts": {
+                "reply-to": 10,
+                "replied-by": 10,
+                "reply-self": 11,
+                "indirect-reply": 90
+              },
+              "edge_weights_phi": {
+                "reply-self": 1.0,
+                "reply-to": 0.92,
+                "replied-by": 0.88,
+                "indirect-reply": 0.45
+              },
+              "replied_by_amendments": 3,
+              "intent_amendments": [
+                {
+                  "turn_id": 1,
+                  "from_fine": "UNK",
+                  "gift_fine": "Inform",
+                  "via": "replied-by",
+                  "evidence_turn": 2
+                },
+                {
+                  "turn_id": 3,
+                  "from_fine": "Inform",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 4
+                },
+                {
+                  "turn_id": 5,
+                  "from_fine": "UNK",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 6
+                }
+              ],
+              "graph_inferred_roles": {},
+              "graph_role_evidence": {},
+              "graph_induced_transitions": 1,
+              "anchor_turn_topology": {
+                "turn_id": 2,
+                "basis": "issue_trigger",
+                "reply_to_turn_id": 1,
+                "replied_by_turn_ids": [
+                  3
+                ]
+              }
+            },
+            "bi_cl_disentangle_summary": {
+              "substantive_turns": 11,
+              "k_upper_bound": 2,
+              "raw_greedy_threads": 3,
+              "raw_thread_ids": [
+                "T_TOPIC_1",
+                "T_TOPIC_2",
+                "T_TOPIC_6"
+              ],
+              "estimated_k": 1,
+              "refined_prototype_threads": 1,
+              "refined_thread_ids": [
+                "T_TOPIC_2"
+              ],
+              "prototype_cohesion_score": 0.504,
+              "raw_cohesion_score": 0.451,
+              "reassigned_turns": [
+                {
+                  "turn_id": 4,
+                  "from": "T_TOPIC_6",
+                  "to": "T_TOPIC_2"
+                },
+                {
+                  "turn_id": 7,
+                  "from": "T_TOPIC_1",
+                  "to": "T_TOPIC_2"
+                },
+                {
+                  "turn_id": 9,
+                  "from": "T_TOPIC_1",
+                  "to": "T_TOPIC_2"
+                }
+              ],
+              "em_iterations": 1
+            },
             "cross_turn_fusion": {
               "dominant_threads": [
                 "T_TOPIC_2"
@@ -4355,10 +5606,10 @@
                   "label": "後台文字標註分角色(免聲紋庫)",
                   "proposed_by": "speaker_2",
                   "role": "director_主任",
-                  "turn_id": 10,
+                  "turn_id": 7,
                   "thread_id": "T_TOPIC_2",
-                  "evidence": "三個人就不分",
-                  "mentions": 1,
+                  "evidence": "寫字在後台",
+                  "mentions": 2,
                   "contributors": [
                     "speaker_2"
                   ]
@@ -4367,7 +5618,7 @@
               "participating_roles": [
                 "researcher_主持團隊",
                 "director_主任",
-                "unknown"
+                "supervisor_居督"
               ],
               "participating_speakers": [
                 "speaker_1",
@@ -4375,6 +5626,8 @@
                 "speaker_3"
               ],
               "transition_types": [
+                "REPORT_TO_ACTION_PLAN",
+                "REQUEST_TO_COMPLIANCE_OR_HESITATION",
                 "PROBLEM_TO_GUIDANCE"
               ],
               "consensus_state": "CONSENSUS_ACTIONABLE"
@@ -4382,14 +5635,14 @@
             "who_to_whom_role": {
               "1": "researcher_主持團隊 -> director_主任",
               "2": "director_主任 -> researcher_主持團隊",
-              "3": "unknown -> director_主任",
-              "4": "researcher_主持團隊 -> unknown",
+              "3": "supervisor_居督 -> director_主任",
+              "4": "researcher_主持團隊 -> supervisor_居督",
               "5": "director_主任 -> researcher_主持團隊",
-              "6": "unknown -> director_主任",
-              "7": "director_主任 -> unknown",
-              "8": "unknown -> director_主任",
-              "9": "researcher_主持團隊 -> unknown",
-              "10": "director_主任 -> unknown",
+              "6": "supervisor_居督 -> director_主任",
+              "7": "director_主任 -> supervisor_居督",
+              "8": "supervisor_居督 -> director_主任",
+              "9": "researcher_主持團隊 -> supervisor_居督",
+              "10": "director_主任 -> supervisor_居督",
               "11": "researcher_主持團隊 -> director_主任"
             }
           },
@@ -4445,10 +5698,10 @@
                     "label": "後台文字標註分角色(免聲紋庫)",
                     "proposed_by": "speaker_2",
                     "role": "director_主任",
-                    "turn_id": 10,
+                    "turn_id": 7,
                     "thread_id": "T_TOPIC_2",
-                    "evidence": "三個人就不分",
-                    "mentions": 1,
+                    "evidence": "寫字在後台",
+                    "mentions": 2,
                     "contributors": [
                       "speaker_2"
                     ]
@@ -4457,7 +5710,7 @@
                 "participating_roles": [
                   "researcher_主持團隊",
                   "director_主任",
-                  "unknown"
+                  "supervisor_居督"
                 ],
                 "participating_speakers": [
                   "speaker_1",
@@ -4465,6 +5718,8 @@
                   "speaker_3"
                 ],
                 "transition_types": [
+                  "REPORT_TO_ACTION_PLAN",
+                  "REQUEST_TO_COMPLIANCE_OR_HESITATION",
                   "PROBLEM_TO_GUIDANCE"
                 ],
                 "consensus_state": "CONSENSUS_ACTIONABLE"
@@ -4556,14 +5811,53 @@
             "speaker_roles": {
               "speaker_1": "researcher_主持團隊",
               "speaker_2": "director_主任",
-              "speaker_3": "unknown"
+              "speaker_3": "supervisor_居督"
             },
             "speaker_role_sources": {
               "speaker_1": "recording_prior",
               "speaker_2": "recording_prior",
-              "speaker_3": "no_evidence"
+              "speaker_3": "recording_prior"
             },
             "mintrec_transitions": [
+              {
+                "type": "REPORT_TO_ACTION_PLAN",
+                "thread_id": "T_TOPIC_2",
+                "from_turn": 1,
+                "to_turn": 2,
+                "from_speaker": "speaker_1",
+                "to_speaker": "speaker_2",
+                "from_role": "researcher_主持團隊",
+                "to_role": "director_主任",
+                "from_fine": "Inform",
+                "to_fine": "Arrange",
+                "lag": 1,
+                "priority": "NORMAL",
+                "live_hazard": false,
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "graph_induced": true,
+                "gift_weight": 1.38
+              },
+              {
+                "type": "REQUEST_TO_COMPLIANCE_OR_HESITATION",
+                "thread_id": "T_TOPIC_2",
+                "from_turn": 2,
+                "to_turn": 4,
+                "from_speaker": "speaker_2",
+                "to_speaker": "speaker_1",
+                "from_role": "director_主任",
+                "to_role": "researcher_主持團隊",
+                "from_fine": "Arrange",
+                "to_fine": "UNK",
+                "lag": 2,
+                "priority": "HIGH_RAG_INTERVENTION",
+                "live_hazard": false,
+                "rag_intervention": true,
+                "gift_edge": "indirect-reply",
+                "gift_phi": 0.45,
+                "gift_weight": 0.9
+              },
               {
                 "type": "PROBLEM_TO_GUIDANCE",
                 "thread_id": "T_TOPIC_2",
@@ -4571,16 +5865,103 @@
                 "to_turn": 10,
                 "from_speaker": "speaker_3",
                 "to_speaker": "speaker_2",
-                "from_role": "unknown",
+                "from_role": "supervisor_居督",
                 "to_role": "director_主任",
                 "from_fine": "Complain",
                 "to_fine": "Advise",
-                "lag": 1,
+                "lag": 2,
                 "priority": "NORMAL",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "gift_weight": 0.92
               }
             ],
+            "gift_graph_summary": {
+              "edge_counts": {
+                "reply-to": 10,
+                "replied-by": 10,
+                "reply-self": 11,
+                "indirect-reply": 90
+              },
+              "edge_weights_phi": {
+                "reply-self": 1.0,
+                "reply-to": 0.92,
+                "replied-by": 0.88,
+                "indirect-reply": 0.45
+              },
+              "replied_by_amendments": 3,
+              "intent_amendments": [
+                {
+                  "turn_id": 1,
+                  "from_fine": "UNK",
+                  "gift_fine": "Inform",
+                  "via": "replied-by",
+                  "evidence_turn": 2
+                },
+                {
+                  "turn_id": 3,
+                  "from_fine": "Inform",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 4
+                },
+                {
+                  "turn_id": 5,
+                  "from_fine": "UNK",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 6
+                }
+              ],
+              "graph_inferred_roles": {},
+              "graph_role_evidence": {},
+              "graph_induced_transitions": 1,
+              "anchor_turn_topology": {
+                "turn_id": 2,
+                "basis": "issue_trigger",
+                "reply_to_turn_id": 1,
+                "replied_by_turn_ids": [
+                  3
+                ]
+              }
+            },
+            "bi_cl_disentangle_summary": {
+              "substantive_turns": 11,
+              "k_upper_bound": 2,
+              "raw_greedy_threads": 3,
+              "raw_thread_ids": [
+                "T_TOPIC_1",
+                "T_TOPIC_2",
+                "T_TOPIC_6"
+              ],
+              "estimated_k": 1,
+              "refined_prototype_threads": 1,
+              "refined_thread_ids": [
+                "T_TOPIC_2"
+              ],
+              "prototype_cohesion_score": 0.504,
+              "raw_cohesion_score": 0.451,
+              "reassigned_turns": [
+                {
+                  "turn_id": 4,
+                  "from": "T_TOPIC_6",
+                  "to": "T_TOPIC_2"
+                },
+                {
+                  "turn_id": 7,
+                  "from": "T_TOPIC_1",
+                  "to": "T_TOPIC_2"
+                },
+                {
+                  "turn_id": 9,
+                  "from": "T_TOPIC_1",
+                  "to": "T_TOPIC_2"
+                }
+              ],
+              "em_iterations": 1
+            },
             "turns_detail": [
               {
                 "turn_id": 1,
@@ -4593,6 +5974,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "UNK",
+                "gift_fine": "Inform",
+                "gift_reply_to": null,
                 "text": "因為一開始我們都知道每一個人的聲紋"
               },
               {
@@ -4606,19 +5989,23 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "Arrange",
+                "gift_fine": "Arrange",
+                "gift_reply_to": 1,
                 "text": "如果說後續使用的聲紋很多的話我們可以把每一個人的聲紋記錄下來然後聲紋記錄下來之後我們這邊就不用再判斷了這是一開始一開始因為我們要先確定一下收集一下每個人的聲紋可是聲紋可能會沒有吧"
               },
               {
                 "turn_id": 3,
                 "speaker_id": "speaker_3",
                 "role_pre_filled": "unknown",
-                "inferred_role": "unknown",
+                "inferred_role": "supervisor_居督",
                 "addressee": "director_主任",
                 "addressee_speaker": "speaker_2",
-                "who_to_whom_role": "unknown -> director_主任",
+                "who_to_whom_role": "supervisor_居督 -> director_主任",
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Ask_for_help",
+                "gift_reply_to": 2,
                 "text": "因為家屬都是會變來變去的"
               },
               {
@@ -4626,12 +6013,14 @@
                 "speaker_id": "speaker_1",
                 "role_pre_filled": "unknown",
                 "inferred_role": "researcher_主持團隊",
-                "addressee": "unknown",
+                "addressee": "supervisor_居督",
                 "addressee_speaker": "speaker_3",
-                "who_to_whom_role": "researcher_主持團隊 -> unknown",
+                "who_to_whom_role": "researcher_主持團隊 -> supervisor_居督",
                 "thread_id": "T_TASK_MAIN",
-                "source_thread_id": "T_TOPIC_6",
+                "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "UNK",
+                "gift_fine": "UNK",
+                "gift_reply_to": 3,
                 "text": "會慢慢累積會慢慢累積"
               },
               {
@@ -4645,19 +6034,23 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "UNK",
+                "gift_fine": "Ask_for_help",
+                "gift_reply_to": 4,
                 "text": "我們都可以去變身的聲紋資料戶"
               },
               {
                 "turn_id": 6,
                 "speaker_id": "speaker_3",
                 "role_pre_filled": "unknown",
-                "inferred_role": "unknown",
+                "inferred_role": "supervisor_居督",
                 "addressee": "director_主任",
                 "addressee_speaker": "speaker_2",
-                "who_to_whom_role": "unknown -> director_主任",
+                "who_to_whom_role": "supervisor_居督 -> director_主任",
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "Introduce",
+                "gift_fine": "Introduce",
+                "gift_reply_to": 5,
                 "text": "我是覺得你們錄音下來"
               },
               {
@@ -4665,25 +6058,29 @@
                 "speaker_id": "speaker_2",
                 "role_pre_filled": "unknown",
                 "inferred_role": "director_主任",
-                "addressee": "unknown",
+                "addressee": "supervisor_居督",
                 "addressee_speaker": "speaker_3",
-                "who_to_whom_role": "director_主任 -> unknown",
+                "who_to_whom_role": "director_主任 -> supervisor_居督",
                 "thread_id": "T_TASK_MAIN",
-                "source_thread_id": "T_TOPIC_1",
+                "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "Advise",
+                "gift_fine": "Advise",
+                "gift_reply_to": 6,
                 "text": "可以直接寫字在後台文字我覺得這個就可以了就是可能變成我們後面要去把A或B自己分"
               },
               {
                 "turn_id": 8,
                 "speaker_id": "speaker_3",
                 "role_pre_filled": "unknown",
-                "inferred_role": "unknown",
+                "inferred_role": "supervisor_居督",
                 "addressee": "director_主任",
                 "addressee_speaker": "speaker_2",
-                "who_to_whom_role": "unknown -> director_主任",
+                "who_to_whom_role": "supervisor_居督 -> director_主任",
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "Complain",
+                "gift_fine": "Complain",
+                "gift_reply_to": 7,
                 "text": "你如果說要收集生活這個個人覺得很困難因為第一家屬很多就比如說我今天像我有什麼一天有四個案子好四個案裡面它不可能只有一個家屬它如果又有三個家屬然後三個家屬可能又有孫子通知"
               },
               {
@@ -4691,12 +6088,14 @@
                 "speaker_id": "speaker_1",
                 "role_pre_filled": "unknown",
                 "inferred_role": "researcher_主持團隊",
-                "addressee": "unknown",
+                "addressee": "supervisor_居督",
                 "addressee_speaker": "speaker_3",
-                "who_to_whom_role": "researcher_主持團隊 -> unknown",
+                "who_to_whom_role": "researcher_主持團隊 -> supervisor_居督",
                 "thread_id": "T_TASK_MAIN",
-                "source_thread_id": "T_TOPIC_1",
+                "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "UNK",
+                "gift_fine": "UNK",
+                "gift_reply_to": 8,
                 "text": "就會變成是你這個"
               },
               {
@@ -4704,12 +6103,14 @@
                 "speaker_id": "speaker_2",
                 "role_pre_filled": "unknown",
                 "inferred_role": "director_主任",
-                "addressee": "unknown",
+                "addressee": "supervisor_居督",
                 "addressee_speaker": "speaker_3",
-                "who_to_whom_role": "director_主任 -> unknown",
+                "who_to_whom_role": "director_主任 -> supervisor_居督",
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "Advise",
+                "gift_fine": "Advise",
+                "gift_reply_to": 8,
                 "text": "就會變成是你這個,這個當處就會收集過,我們三個人就不分我覺得。"
               },
               {
@@ -4723,6 +6124,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Inform",
+                "gift_reply_to": 10,
                 "text": "不會有,他一個案子就是,你們現在在這個,你們現在在這場的生活,在跳到下一個案,他就在收集他們的生活,所以你不會這十幾個,特案的十幾個家屬,都會染這位。"
               }
             ]
@@ -4747,6 +6150,10 @@
             "T_TOPIC_1",
             "T_TOPIC_2"
           ],
+          "greedy_threads": [
+            "T_TOPIC_1",
+            "T_TOPIC_2"
+          ],
           "turns": [
             {
               "turn_id": 59,
@@ -4757,6 +6164,7 @@
               "addressee": "ALL",
               "addressee_reason": "broadcast",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "他現在語音電視完之後",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -4771,6 +6179,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "他回答就會自動播放入他的語音但像這個可能是你們講的不夠完全的話他就會寫說",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -4785,6 +6194,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "請補充您指的是哪件事想做什麼會確認哪一項規定那如果你們覺得說老闆應該要回答但是他沒有回答或者是他回答錯誤的話我們會有一個反饋的方式就是小趙回答有問題幫我點一下小趙回答有問題讓我先翻",
               "mintrec_fine": "Advise",
               "domain_intents": [],
@@ -4799,6 +6209,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "qa_latch",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "然後他就會分別由這幾個問題分別是答案不正確回答不完整引用的資料不對",
               "mintrec_fine": "Complain",
               "domain_intents": [],
@@ -4813,6 +6224,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "回答不安全然後還有其他問題其他問題",
               "mintrec_fine": "Complain",
               "domain_intents": [],
@@ -4827,6 +6239,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "或者是查案更多問題種類然後他就會有應該回答卻沒有回答",
               "mintrec_fine": "Advise",
               "domain_intents": [],
@@ -4841,6 +6254,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "找不到資料回答沒有依據等等的問題",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -4855,6 +6269,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_1",
+              "greedy_thread_id": "T_TOPIC_1",
               "text": "那假如說今天選引用資料出負然後再往下他就會有請用自己的化妝品問題這個畫是可以填也可以不要填那開的方式有兩種第一個是可以打字",
               "mintrec_fine": "Prevent",
               "domain_intents": [],
@@ -4924,14 +6339,34 @@
             "speaker_roles": {
               "speaker_1": "researcher_主持團隊",
               "speaker_2": "director_主任",
-              "speaker_3": "unknown"
+              "speaker_3": "supervisor_居督"
             },
             "speaker_role_sources": {
               "speaker_1": "recording_prior",
               "speaker_2": "recording_prior",
-              "speaker_3": "no_evidence"
+              "speaker_3": "recording_prior"
             },
             "mintrec_transitions": [
+              {
+                "type": "PROBLEM_TO_GUIDANCE",
+                "thread_id": "T_TOPIC_1",
+                "from_turn": 2,
+                "to_turn": 3,
+                "from_speaker": "speaker_2",
+                "to_speaker": "speaker_1",
+                "from_role": "director_主任",
+                "to_role": "researcher_主持團隊",
+                "from_fine": "Ask_for_help",
+                "to_fine": "Advise",
+                "lag": 1,
+                "priority": "NORMAL",
+                "live_hazard": false,
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "graph_induced": true,
+                "gift_weight": 1.38
+              },
               {
                 "type": "PROBLEM_TO_GUIDANCE",
                 "thread_id": "T_TOPIC_1",
@@ -4946,9 +6381,71 @@
                 "lag": 1,
                 "priority": "NORMAL",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "gift_weight": 0.92
               }
             ],
+            "gift_graph_summary": {
+              "edge_counts": {
+                "reply-to": 7,
+                "replied-by": 7,
+                "reply-self": 8,
+                "indirect-reply": 42
+              },
+              "edge_weights_phi": {
+                "reply-self": 1.0,
+                "reply-to": 0.92,
+                "replied-by": 0.88,
+                "indirect-reply": 0.45
+              },
+              "replied_by_amendments": 1,
+              "intent_amendments": [
+                {
+                  "turn_id": 2,
+                  "from_fine": "UNK",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 3
+                }
+              ],
+              "graph_inferred_roles": {},
+              "graph_role_evidence": {},
+              "graph_induced_transitions": 1,
+              "anchor_turn_topology": {
+                "turn_id": 3,
+                "basis": "issue_trigger",
+                "reply_to_turn_id": 2,
+                "replied_by_turn_ids": [
+                  4
+                ]
+              }
+            },
+            "bi_cl_disentangle_summary": {
+              "substantive_turns": 8,
+              "k_upper_bound": 2,
+              "raw_greedy_threads": 2,
+              "raw_thread_ids": [
+                "T_TOPIC_1",
+                "T_TOPIC_2"
+              ],
+              "estimated_k": 1,
+              "refined_prototype_threads": 1,
+              "refined_thread_ids": [
+                "T_TOPIC_1"
+              ],
+              "prototype_cohesion_score": 0.581,
+              "raw_cohesion_score": 0.535,
+              "reassigned_turns": [
+                {
+                  "turn_id": 1,
+                  "from": "T_TOPIC_2",
+                  "to": "T_TOPIC_1"
+                }
+              ],
+              "em_iterations": 4
+            },
             "cross_turn_fusion": {
               "dominant_threads": [
                 "T_TOPIC_1"
@@ -4985,9 +6482,9 @@
                 }
               ],
               "participating_roles": [
-                "director_主任",
                 "researcher_主持團隊",
-                "unknown"
+                "director_主任",
+                "supervisor_居督"
               ],
               "participating_speakers": [
                 "speaker_1",
@@ -4995,6 +6492,7 @@
                 "speaker_3"
               ],
               "transition_types": [
+                "PROBLEM_TO_GUIDANCE",
                 "PROBLEM_TO_GUIDANCE"
               ],
               "consensus_state": "CONSENSUS_ACTIONABLE"
@@ -5006,8 +6504,8 @@
               "4": "director_主任 -> researcher_主持團隊",
               "5": "researcher_主持團隊 -> director_主任",
               "6": "director_主任 -> researcher_主持團隊",
-              "7": "unknown -> director_主任",
-              "8": "director_主任 -> unknown"
+              "7": "supervisor_居督 -> director_主任",
+              "8": "director_主任 -> supervisor_居督"
             }
           },
           "window_mmss": "09:30-10:30",
@@ -5071,9 +6569,9 @@
                   }
                 ],
                 "participating_roles": [
-                  "director_主任",
                   "researcher_主持團隊",
-                  "unknown"
+                  "director_主任",
+                  "supervisor_居督"
                 ],
                 "participating_speakers": [
                   "speaker_1",
@@ -5081,6 +6579,7 @@
                   "speaker_3"
                 ],
                 "transition_types": [
+                  "PROBLEM_TO_GUIDANCE",
                   "PROBLEM_TO_GUIDANCE"
                 ],
                 "consensus_state": "CONSENSUS_ACTIONABLE"
@@ -5152,14 +6651,34 @@
             "speaker_roles": {
               "speaker_1": "researcher_主持團隊",
               "speaker_2": "director_主任",
-              "speaker_3": "unknown"
+              "speaker_3": "supervisor_居督"
             },
             "speaker_role_sources": {
               "speaker_1": "recording_prior",
               "speaker_2": "recording_prior",
-              "speaker_3": "no_evidence"
+              "speaker_3": "recording_prior"
             },
             "mintrec_transitions": [
+              {
+                "type": "PROBLEM_TO_GUIDANCE",
+                "thread_id": "T_TOPIC_1",
+                "from_turn": 2,
+                "to_turn": 3,
+                "from_speaker": "speaker_2",
+                "to_speaker": "speaker_1",
+                "from_role": "director_主任",
+                "to_role": "researcher_主持團隊",
+                "from_fine": "Ask_for_help",
+                "to_fine": "Advise",
+                "lag": 1,
+                "priority": "NORMAL",
+                "live_hazard": false,
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "graph_induced": true,
+                "gift_weight": 1.38
+              },
               {
                 "type": "PROBLEM_TO_GUIDANCE",
                 "thread_id": "T_TOPIC_1",
@@ -5174,9 +6693,71 @@
                 "lag": 1,
                 "priority": "NORMAL",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "gift_weight": 0.92
               }
             ],
+            "gift_graph_summary": {
+              "edge_counts": {
+                "reply-to": 7,
+                "replied-by": 7,
+                "reply-self": 8,
+                "indirect-reply": 42
+              },
+              "edge_weights_phi": {
+                "reply-self": 1.0,
+                "reply-to": 0.92,
+                "replied-by": 0.88,
+                "indirect-reply": 0.45
+              },
+              "replied_by_amendments": 1,
+              "intent_amendments": [
+                {
+                  "turn_id": 2,
+                  "from_fine": "UNK",
+                  "gift_fine": "Ask_for_help",
+                  "via": "replied-by",
+                  "evidence_turn": 3
+                }
+              ],
+              "graph_inferred_roles": {},
+              "graph_role_evidence": {},
+              "graph_induced_transitions": 1,
+              "anchor_turn_topology": {
+                "turn_id": 3,
+                "basis": "issue_trigger",
+                "reply_to_turn_id": 2,
+                "replied_by_turn_ids": [
+                  4
+                ]
+              }
+            },
+            "bi_cl_disentangle_summary": {
+              "substantive_turns": 8,
+              "k_upper_bound": 2,
+              "raw_greedy_threads": 2,
+              "raw_thread_ids": [
+                "T_TOPIC_1",
+                "T_TOPIC_2"
+              ],
+              "estimated_k": 1,
+              "refined_prototype_threads": 1,
+              "refined_thread_ids": [
+                "T_TOPIC_1"
+              ],
+              "prototype_cohesion_score": 0.581,
+              "raw_cohesion_score": 0.535,
+              "reassigned_turns": [
+                {
+                  "turn_id": 1,
+                  "from": "T_TOPIC_2",
+                  "to": "T_TOPIC_1"
+                }
+              ],
+              "em_iterations": 4
+            },
             "turns_detail": [
               {
                 "turn_id": 1,
@@ -5187,8 +6768,10 @@
                 "addressee_speaker": "ALL",
                 "who_to_whom_role": "researcher_主持團隊 -> ALL",
                 "thread_id": "T_TASK_MAIN",
-                "source_thread_id": "T_TOPIC_2",
+                "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "UNK",
+                "gift_fine": "UNK",
+                "gift_reply_to": null,
                 "text": "他現在語音電視完之後"
               },
               {
@@ -5202,6 +6785,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "UNK",
+                "gift_fine": "Ask_for_help",
+                "gift_reply_to": 1,
                 "text": "他回答就會自動播放入他的語音但像這個可能是你們講的不夠完全的話他就會寫說"
               },
               {
@@ -5215,6 +6800,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Advise",
+                "gift_fine": "Advise",
+                "gift_reply_to": 2,
                 "text": "請補充您指的是哪件事想做什麼會確認哪一項規定那如果你們覺得說老闆應該要回答但是他沒有回答或者是他回答錯誤的話我們會有一個反饋的方式就是小趙回答有問題幫我點一下小趙回答有問題讓我先翻"
               },
               {
@@ -5228,6 +6815,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Complain",
+                "gift_fine": "Complain",
+                "gift_reply_to": 3,
                 "text": "然後他就會分別由這幾個問題分別是答案不正確回答不完整引用的資料不對"
               },
               {
@@ -5241,6 +6830,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Complain",
+                "gift_fine": "Complain",
+                "gift_reply_to": 4,
                 "text": "回答不安全然後還有其他問題其他問題"
               },
               {
@@ -5254,19 +6845,23 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Advise",
+                "gift_fine": "Advise",
+                "gift_reply_to": 5,
                 "text": "或者是查案更多問題種類然後他就會有應該回答卻沒有回答"
               },
               {
                 "turn_id": 7,
                 "speaker_id": "speaker_3",
                 "role_pre_filled": "unknown",
-                "inferred_role": "unknown",
+                "inferred_role": "supervisor_居督",
                 "addressee": "director_主任",
                 "addressee_speaker": "speaker_2",
-                "who_to_whom_role": "unknown -> director_主任",
+                "who_to_whom_role": "supervisor_居督 -> director_主任",
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "UNK",
+                "gift_fine": "UNK",
+                "gift_reply_to": 6,
                 "text": "找不到資料回答沒有依據等等的問題"
               },
               {
@@ -5274,12 +6869,14 @@
                 "speaker_id": "speaker_2",
                 "role_pre_filled": "unknown",
                 "inferred_role": "director_主任",
-                "addressee": "unknown",
+                "addressee": "supervisor_居督",
                 "addressee_speaker": "speaker_3",
-                "who_to_whom_role": "director_主任 -> unknown",
+                "who_to_whom_role": "director_主任 -> supervisor_居督",
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_1",
                 "mintrec_fine": "Prevent",
+                "gift_fine": "Prevent",
+                "gift_reply_to": 7,
                 "text": "那假如說今天選引用資料出負然後再往下他就會有請用自己的化妝品問題這個畫是可以填也可以不要填那開的方式有兩種第一個是可以打字"
               }
             ]
@@ -5303,6 +6900,9 @@
           "threads": [
             "T_TOPIC_2"
           ],
+          "greedy_threads": [
+            "T_TOPIC_2"
+          ],
           "turns": [
             {
               "turn_id": 518,
@@ -5313,6 +6913,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "那丟一個東西給他我看一下你們怪貪的吧他也或是怪什麼都可以",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -5327,6 +6928,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "qa_latch",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "然後他那邊就會送到同時",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -5341,6 +6943,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "qa_latch",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "其實你有開發那個哪一個居督管哪一個照顧員嗎",
               "mintrec_fine": "Inform",
               "domain_intents": [],
@@ -5355,6 +6958,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "qa_latch",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "沒有,因為我們那時候會討論出來的是OK 那我就加一個介面",
               "mintrec_fine": "Arrange",
               "domain_intents": [],
@@ -5369,6 +6973,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "就是來個居督管來找所謂",
               "mintrec_fine": "Inform",
               "domain_intents": [],
@@ -5383,6 +6988,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "那這個可能就要問每個居督的兒子就是他們這一區做綁定",
               "mintrec_fine": "Inform",
               "domain_intents": [],
@@ -5397,6 +7003,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "看哪不行 都會隨機分配因為影師就這樣",
               "mintrec_fine": "Prevent",
               "domain_intents": [],
@@ -5411,6 +7018,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "就在居督身上就是這一居居你那時候按鍵是綁居督還是綁居居因為個案綁居多",
               "mintrec_fine": "Inform",
               "domain_intents": [],
@@ -5425,6 +7033,7 @@
               "addressee": "speaker_2",
               "addressee_reason": "aba_turn_taking",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "但是居服員問題其實可以給我綁",
               "mintrec_fine": "Inform",
               "domain_intents": [],
@@ -5439,6 +7048,7 @@
               "addressee": "speaker_3",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "可是他可以出來所以所有人都不知道所以一定要說",
               "mintrec_fine": "UNK",
               "domain_intents": [],
@@ -5453,6 +7063,7 @@
               "addressee": "speaker_1",
               "addressee_reason": "adjacency",
               "thread_id": "T_TOPIC_2",
+              "greedy_thread_id": "T_TOPIC_2",
               "text": "個案的事情一定要讓居服知道居服員、事務及時,大家都可以理俗。但是居服員的事情其實大家都可以去處理",
               "mintrec_fine": "Inform",
               "domain_intents": [],
@@ -5539,12 +7150,12 @@
             ],
             "speaker_roles": {
               "speaker_1": "researcher_主持團隊",
-              "speaker_3": "unknown",
+              "speaker_3": "supervisor_居督",
               "speaker_2": "director_主任"
             },
             "speaker_role_sources": {
               "speaker_1": "recording_prior",
-              "speaker_3": "no_evidence",
+              "speaker_3": "recording_prior",
               "speaker_2": "recording_prior"
             },
             "mintrec_transitions": [
@@ -5562,7 +7173,10 @@
                 "lag": 1,
                 "priority": "NORMAL",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "gift_weight": 0.92
               },
               {
                 "type": "REQUEST_TO_REFUSAL",
@@ -5572,15 +7186,62 @@
                 "from_speaker": "speaker_1",
                 "to_speaker": "speaker_3",
                 "from_role": "researcher_主持團隊",
-                "to_role": "unknown",
+                "to_role": "supervisor_居督",
                 "from_fine": "Arrange",
                 "to_fine": "Prevent",
                 "lag": 3,
                 "priority": "HIGH_NEGOTIATION",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "indirect-reply",
+                "gift_phi": 0.45,
+                "gift_weight": 0.9
               }
             ],
+            "gift_graph_summary": {
+              "edge_counts": {
+                "reply-to": 10,
+                "replied-by": 10,
+                "reply-self": 11,
+                "indirect-reply": 90
+              },
+              "edge_weights_phi": {
+                "reply-self": 1.0,
+                "reply-to": 0.92,
+                "replied-by": 0.88,
+                "indirect-reply": 0.45
+              },
+              "replied_by_amendments": 0,
+              "intent_amendments": [],
+              "graph_inferred_roles": {},
+              "graph_role_evidence": {},
+              "graph_induced_transitions": 0,
+              "anchor_turn_topology": {
+                "turn_id": 3,
+                "basis": "issue_trigger",
+                "reply_to_turn_id": 1,
+                "replied_by_turn_ids": [
+                  4
+                ]
+              }
+            },
+            "bi_cl_disentangle_summary": {
+              "substantive_turns": 11,
+              "k_upper_bound": 2,
+              "raw_greedy_threads": 1,
+              "raw_thread_ids": [
+                "T_TOPIC_2"
+              ],
+              "estimated_k": 1,
+              "refined_prototype_threads": 1,
+              "refined_thread_ids": [
+                "T_TOPIC_2"
+              ],
+              "prototype_cohesion_score": 0.457,
+              "raw_cohesion_score": 0.457,
+              "reassigned_turns": [],
+              "em_iterations": 1
+            },
             "cross_turn_fusion": {
               "dominant_threads": [
                 "T_TOPIC_2"
@@ -5617,7 +7278,7 @@
               ],
               "participating_roles": [
                 "researcher_主持團隊",
-                "unknown",
+                "supervisor_居督",
                 "director_主任"
               ],
               "participating_speakers": [
@@ -5632,16 +7293,16 @@
               "consensus_state": "OPEN_DISCUSSION"
             },
             "who_to_whom_role": {
-              "1": "researcher_主持團隊 -> unknown",
-              "2": "unknown -> researcher_主持團隊",
+              "1": "researcher_主持團隊 -> supervisor_居督",
+              "2": "supervisor_居督 -> researcher_主持團隊",
               "3": "director_主任 -> researcher_主持團隊",
               "4": "researcher_主持團隊 -> director_主任",
-              "5": "unknown -> researcher_主持團隊",
-              "6": "director_主任 -> unknown",
-              "7": "unknown -> director_主任",
-              "8": "director_主任 -> unknown",
-              "9": "unknown -> director_主任",
-              "10": "researcher_主持團隊 -> unknown",
+              "5": "supervisor_居督 -> researcher_主持團隊",
+              "6": "director_主任 -> supervisor_居督",
+              "7": "supervisor_居督 -> director_主任",
+              "8": "director_主任 -> supervisor_居督",
+              "9": "supervisor_居督 -> director_主任",
+              "10": "researcher_主持團隊 -> supervisor_居督",
               "11": "director_主任 -> researcher_主持團隊"
             }
           },
@@ -5709,7 +7370,7 @@
                 ],
                 "participating_roles": [
                   "researcher_主持團隊",
-                  "unknown",
+                  "supervisor_居督",
                   "director_主任"
                 ],
                 "participating_speakers": [
@@ -5806,12 +7467,12 @@
             },
             "speaker_roles": {
               "speaker_1": "researcher_主持團隊",
-              "speaker_3": "unknown",
+              "speaker_3": "supervisor_居督",
               "speaker_2": "director_主任"
             },
             "speaker_role_sources": {
               "speaker_1": "recording_prior",
-              "speaker_3": "no_evidence",
+              "speaker_3": "recording_prior",
               "speaker_2": "recording_prior"
             },
             "mintrec_transitions": [
@@ -5829,7 +7490,10 @@
                 "lag": 1,
                 "priority": "NORMAL",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "reply-to",
+                "gift_phi": 0.92,
+                "gift_weight": 0.92
               },
               {
                 "type": "REQUEST_TO_REFUSAL",
@@ -5839,40 +7503,91 @@
                 "from_speaker": "speaker_1",
                 "to_speaker": "speaker_3",
                 "from_role": "researcher_主持團隊",
-                "to_role": "unknown",
+                "to_role": "supervisor_居督",
                 "from_fine": "Arrange",
                 "to_fine": "Prevent",
                 "lag": 3,
                 "priority": "HIGH_NEGOTIATION",
                 "live_hazard": false,
-                "rag_intervention": false
+                "rag_intervention": false,
+                "gift_edge": "indirect-reply",
+                "gift_phi": 0.45,
+                "gift_weight": 0.9
               }
             ],
+            "gift_graph_summary": {
+              "edge_counts": {
+                "reply-to": 10,
+                "replied-by": 10,
+                "reply-self": 11,
+                "indirect-reply": 90
+              },
+              "edge_weights_phi": {
+                "reply-self": 1.0,
+                "reply-to": 0.92,
+                "replied-by": 0.88,
+                "indirect-reply": 0.45
+              },
+              "replied_by_amendments": 0,
+              "intent_amendments": [],
+              "graph_inferred_roles": {},
+              "graph_role_evidence": {},
+              "graph_induced_transitions": 0,
+              "anchor_turn_topology": {
+                "turn_id": 3,
+                "basis": "issue_trigger",
+                "reply_to_turn_id": 1,
+                "replied_by_turn_ids": [
+                  4
+                ]
+              }
+            },
+            "bi_cl_disentangle_summary": {
+              "substantive_turns": 11,
+              "k_upper_bound": 2,
+              "raw_greedy_threads": 1,
+              "raw_thread_ids": [
+                "T_TOPIC_2"
+              ],
+              "estimated_k": 1,
+              "refined_prototype_threads": 1,
+              "refined_thread_ids": [
+                "T_TOPIC_2"
+              ],
+              "prototype_cohesion_score": 0.457,
+              "raw_cohesion_score": 0.457,
+              "reassigned_turns": [],
+              "em_iterations": 1
+            },
             "turns_detail": [
               {
                 "turn_id": 1,
                 "speaker_id": "speaker_1",
                 "role_pre_filled": "unknown",
                 "inferred_role": "researcher_主持團隊",
-                "addressee": "unknown",
+                "addressee": "supervisor_居督",
                 "addressee_speaker": "speaker_3",
-                "who_to_whom_role": "researcher_主持團隊 -> unknown",
+                "who_to_whom_role": "researcher_主持團隊 -> supervisor_居督",
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "UNK",
+                "gift_fine": "UNK",
+                "gift_reply_to": null,
                 "text": "那丟一個東西給他我看一下你們怪貪的吧他也或是怪什麼都可以"
               },
               {
                 "turn_id": 2,
                 "speaker_id": "speaker_3",
                 "role_pre_filled": "unknown",
-                "inferred_role": "unknown",
+                "inferred_role": "supervisor_居督",
                 "addressee": "researcher_主持團隊",
                 "addressee_speaker": "speaker_1",
-                "who_to_whom_role": "unknown -> researcher_主持團隊",
+                "who_to_whom_role": "supervisor_居督 -> researcher_主持團隊",
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "UNK",
+                "gift_fine": "UNK",
+                "gift_reply_to": 1,
                 "text": "然後他那邊就會送到同時"
               },
               {
@@ -5886,6 +7601,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Inform",
+                "gift_reply_to": 1,
                 "text": "其實你有開發那個哪一個居督管哪一個照顧員嗎"
               },
               {
@@ -5899,19 +7616,23 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "Arrange",
+                "gift_fine": "Arrange",
+                "gift_reply_to": 3,
                 "text": "沒有,因為我們那時候會討論出來的是OK 那我就加一個介面"
               },
               {
                 "turn_id": 5,
                 "speaker_id": "speaker_3",
                 "role_pre_filled": "unknown",
-                "inferred_role": "unknown",
+                "inferred_role": "supervisor_居督",
                 "addressee": "researcher_主持團隊",
                 "addressee_speaker": "speaker_1",
-                "who_to_whom_role": "unknown -> researcher_主持團隊",
+                "who_to_whom_role": "supervisor_居督 -> researcher_主持團隊",
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Inform",
+                "gift_reply_to": 4,
                 "text": "就是來個居督管來找所謂"
               },
               {
@@ -5919,25 +7640,29 @@
                 "speaker_id": "speaker_2",
                 "role_pre_filled": "unknown",
                 "inferred_role": "director_主任",
-                "addressee": "unknown",
+                "addressee": "supervisor_居督",
                 "addressee_speaker": "speaker_3",
-                "who_to_whom_role": "director_主任 -> unknown",
+                "who_to_whom_role": "director_主任 -> supervisor_居督",
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Inform",
+                "gift_reply_to": 5,
                 "text": "那這個可能就要問每個居督的兒子就是他們這一區做綁定"
               },
               {
                 "turn_id": 7,
                 "speaker_id": "speaker_3",
                 "role_pre_filled": "unknown",
-                "inferred_role": "unknown",
+                "inferred_role": "supervisor_居督",
                 "addressee": "director_主任",
                 "addressee_speaker": "speaker_2",
-                "who_to_whom_role": "unknown -> director_主任",
+                "who_to_whom_role": "supervisor_居督 -> director_主任",
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "Prevent",
+                "gift_fine": "Prevent",
+                "gift_reply_to": 6,
                 "text": "看哪不行 都會隨機分配因為影師就這樣"
               },
               {
@@ -5945,25 +7670,29 @@
                 "speaker_id": "speaker_2",
                 "role_pre_filled": "unknown",
                 "inferred_role": "director_主任",
-                "addressee": "unknown",
+                "addressee": "supervisor_居督",
                 "addressee_speaker": "speaker_3",
-                "who_to_whom_role": "director_主任 -> unknown",
+                "who_to_whom_role": "director_主任 -> supervisor_居督",
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Inform",
+                "gift_reply_to": 7,
                 "text": "就在居督身上就是這一居居你那時候按鍵是綁居督還是綁居居因為個案綁居多"
               },
               {
                 "turn_id": 9,
                 "speaker_id": "speaker_3",
                 "role_pre_filled": "unknown",
-                "inferred_role": "unknown",
+                "inferred_role": "supervisor_居督",
                 "addressee": "director_主任",
                 "addressee_speaker": "speaker_2",
-                "who_to_whom_role": "unknown -> director_主任",
+                "who_to_whom_role": "supervisor_居督 -> director_主任",
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Inform",
+                "gift_reply_to": 8,
                 "text": "但是居服員問題其實可以給我綁"
               },
               {
@@ -5971,12 +7700,14 @@
                 "speaker_id": "speaker_1",
                 "role_pre_filled": "unknown",
                 "inferred_role": "researcher_主持團隊",
-                "addressee": "unknown",
+                "addressee": "supervisor_居督",
                 "addressee_speaker": "speaker_3",
-                "who_to_whom_role": "researcher_主持團隊 -> unknown",
+                "who_to_whom_role": "researcher_主持團隊 -> supervisor_居督",
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "UNK",
+                "gift_fine": "UNK",
+                "gift_reply_to": 9,
                 "text": "可是他可以出來所以所有人都不知道所以一定要說"
               },
               {
@@ -5990,6 +7721,8 @@
                 "thread_id": "T_TASK_MAIN",
                 "source_thread_id": "T_TOPIC_2",
                 "mintrec_fine": "Inform",
+                "gift_fine": "Inform",
+                "gift_reply_to": 10,
                 "text": "個案的事情一定要讓居服知道居服員、事務及時,大家都可以理俗。但是居服員的事情其實大家都可以去處理"
               }
             ]
@@ -5999,7 +7732,12 @@
             "GENERAL_CARE_LOG"
           ]
         }
-      ]
+      ],
+      "recording_speaker_role_sources": {
+        "speaker_1": "session_cues",
+        "speaker_2": "session_cues",
+        "speaker_3": "graph_inferred"
+      }
     }
   ],
   "corpus_dedup_summary": {
@@ -6028,7 +7766,31 @@
       "interview3_full": {
         "speaker_1": "researcher_主持團隊",
         "speaker_2": "director_主任",
-        "speaker_3": "unknown"
+        "speaker_3": "supervisor_居督"
+      }
+    },
+    "recording_speaker_role_sources": {
+      "interview1": {
+        "speaker_1": "session_cues",
+        "speaker_2": "session_cues",
+        "speaker_3": "session_cues"
+      },
+      "interview2": {
+        "speaker_1": "session_cues",
+        "speaker_2": "session_cues",
+        "speaker_3": "session_cues"
+      },
+      "interview3_full": {
+        "speaker_1": "session_cues",
+        "speaker_2": "session_cues",
+        "speaker_3": "graph_inferred"
+      }
+    },
+    "gift_graph_inferred_roles": {
+      "interview1": {},
+      "interview2": {},
+      "interview3_full": {
+        "speaker_3": "supervisor_居督 (graph_inferred)"
       }
     }
   }

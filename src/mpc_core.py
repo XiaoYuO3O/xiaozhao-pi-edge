@@ -162,14 +162,17 @@ def _norm(text: str) -> str:
 def infer_session_speaker_roles(turns: List[UtteranceTurn],
                                 prefilled: Optional[Dict[int, str]] = None,
                                 priors: Optional[Dict[str, str]] = None,
-                                sources_out: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+                                sources_out: Optional[Dict[str, str]] = None,
+                                graph_evidence_out: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
     """Session-level speaker -> role map from multi-turn cue evidence (no voiceprint DB).
 
     Home-care pre-filled roles (caregiver/family/elder) stay authoritative unless the session is in
     meeting/interview mode (>= EXTENDED_SESSION_MIN_HITS extended cues) AND that speaker has own cues.
     `prefilled` maps turn_id -> role hint (defaults to each turn's inferred_role). `priors` (e.g. roles
     inferred over the whole recording) fill speakers the session alone cannot resolve. `sources_out`, if
-    given, receives speaker -> session_cues | prefilled | recording_prior | no_evidence."""
+    given, receives speaker -> session_cues | prefilled | recording_prior | graph_inferred | no_evidence.
+    GIFT: in meeting mode, a no_evidence speaker is resolved from its reply-to / replied-by exchanges with
+    role-resolved participants (gift_infer_roles); `graph_evidence_out` receives that evidence."""
     priors = priors or {}
     src: Dict[str, str] = {} if sources_out is None else sources_out
     prefilled = prefilled or {t.turn_id: t.inferred_role for t in turns}
@@ -208,6 +211,12 @@ def infer_session_speaker_roles(turns: List[UtteranceTurn],
             roles[sp], src[sp] = priors[sp], "recording_prior"
         else:
             roles[sp], src[sp] = "unknown", "no_evidence"
+    unresolved = [sp for sp in order if src[sp] == "no_evidence"]
+    if meeting_mode and unresolved and len(unresolved) < len(order):
+        for sp, (role, ev) in gift_infer_roles(turns, build_gift_graph(turns), roles, unresolved).items():
+            roles[sp], src[sp] = role, GRAPH_INFERRED_SOURCE
+            if graph_evidence_out is not None:
+                graph_evidence_out[sp] = ev
     return roles
 
 
@@ -427,6 +436,408 @@ def aggregate_cross_turn_slots(turns: List[UtteranceTurn], speaker_roles: Dict[s
             "transition_types": [x["type"] for x in dom_tr], "consensus_state": state}
 
 
+# ------------------------- Upgrade D: GIFT 4-edge graph-induced topology (Gu et al., USTC & iFLYTEK)
+GIFT_EDGE_TYPES = ("reply-self", "reply-to", "replied-by", "indirect-reply")
+GIFT_EDGE_WEIGHTS = {"reply-self": 1.0, "reply-to": 0.92, "replied-by": 0.88, "indirect-reply": 0.45}
+GIFT_WEAK_INTENTS = ("UNK", "Inform")
+# replied-by child fine intent -> what the parent (weak) turn effectively was
+# (an opposed weak turn was a proposal/request -> unlocks REQUEST_TO_REFUSAL)
+GIFT_CHILD_AMEND = {"Advise": "Ask_for_help", "Comfort": "Ask_for_help", "Arrange": "Inform", "Oppose": "Arrange"}
+GIFT_HELP_SEEKING = ("Ask_for_help", "Complain")
+# graph-induced role inference: topic cues exchanged on reply-to / replied-by edges (meeting mode only)
+GRAPH_ROLE_TOPIC_CUES: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+    (ROLE_SUPERVISOR, ("居督", "督導", "綁", "派案", "居服員", "照服員", "居服", "個案")),
+    (ROLE_CAREGIVER_LTC, ("去案家", "我的個案", "換尿布", "洗澡", "服務的時候", "我的夥伴")),
+    (ROLE_DIRECTOR, ("主任", "機構", "公文", "審核")),
+    (ROLE_RESEARCHER, ("系統", "介面", "知識庫", "小照", "後台", "APP")),
+)
+GRAPH_ROLE_MIN_EDGES = 3      # reply-to + replied-by edges exchanged with role-resolved partners
+GRAPH_ROLE_MIN_SCORE = 2.0    # phi-weighted topic-cue hits
+GRAPH_INFERRED_SOURCE = "graph_inferred"
+
+
+def build_gift_graph(turns: List[UtteranceTurn], thread_of: Optional[Dict[int, str]] = None,
+                     addressee_speaker: Optional[Dict[int, str]] = None) -> Dict[str, Any]:
+    """GIFT 4-edge graph over substantive turns (agreement-only / noise-thread turns are not nodes).
+
+    reply-to parent of u_i: the most recent earlier turn of u_i's addressee speaker in the same thread, else
+    the discourse latch (the nearest earlier turn of another speaker in the same thread, skipping u_i's own
+    continuation turns, i.e. A-B-A adjacency) within ADDRESSEE_ADJACENCY_SEC. replied-by is its transpose,
+    i == j is reply-self, every other pair is indirect-reply. The N x N matrix stays implicit
+    (gift_edge / gift_edge_matrix) so 800-turn recordings cost O(N)."""
+    thread_of = thread_of or {}
+    addressee_speaker = addressee_speaker or {}
+    nodes = [t for t in turns if thread_of.get(t.turn_id, t.thread_id) not in NOISE_THREADS
+             and not is_agreement_only(t.text)]
+    reply_to: Dict[int, int] = {}
+    replied_by: Dict[int, List[int]] = {t.turn_id: [] for t in nodes}
+    by_thread: Dict[str, List[UtteranceTurn]] = {}
+    for t in nodes:
+        prior = by_thread.setdefault(thread_of.get(t.turn_id, t.thread_id), [])
+        addr = addressee_speaker.get(t.turn_id) or t.addressee
+        parent = None
+        if addr and _SPEAKER_ID_RE.match(addr) and addr != t.speaker_id:
+            parent = next((p for p in reversed(prior) if p.speaker_id == addr), None)
+        if parent is None:
+            latch = next((p for p in reversed(prior) if p.speaker_id != t.speaker_id), None)
+            if latch is not None and t.timestamp - latch.timestamp <= ADDRESSEE_ADJACENCY_SEC:
+                parent = latch
+        if parent is not None:
+            reply_to[t.turn_id] = parent.turn_id
+            replied_by[parent.turn_id].append(t.turn_id)
+        prior.append(t)
+    return {"node_ids": [t.turn_id for t in nodes], "speaker_of": {t.turn_id: t.speaker_id for t in nodes},
+            "reply_to": reply_to, "replied_by": replied_by}
+
+
+def gift_edge(graph: Dict[str, Any], i: int, j: int) -> str:
+    """e_{i,j} for node turn ids i, j."""
+    if i == j:
+        return "reply-self"
+    if graph["reply_to"].get(i) == j:
+        return "reply-to"
+    if graph["reply_to"].get(j) == i:
+        return "replied-by"
+    return "indirect-reply"
+
+
+def gift_edge_matrix(graph: Dict[str, Any]) -> List[List[str]]:
+    """Explicit pairwise e_{i,j} matrix in node order (only for small sessions / inspection)."""
+    ids = graph["node_ids"]
+    return [[gift_edge(graph, i, j) for j in ids] for i in ids]
+
+
+def gift_edge_counts(graph: Dict[str, Any]) -> Dict[str, int]:
+    n, r = len(graph["node_ids"]), len(graph["reply_to"])
+    return {"reply-to": r, "replied-by": r, "reply-self": n, "indirect-reply": n * n - n - 2 * r}
+
+
+def _gift_has_sop_cue(text: str) -> bool:
+    global _LIVE_CHECKER
+    if _LIVE_CHECKER is None:
+        _LIVE_CHECKER = XiaoZhaoMPCEngine()
+    t = _norm(text)
+    return any(c in t for c in CRISIS_SOURCE_HAZARD_CUES) or bool(_LIVE_CHECKER.detect_domain_intents(t))
+
+
+def gift_amend_intents(turns: List[UtteranceTurn], labels: List[dict],
+                       graph: Dict[str, Any]) -> Dict[int, Dict[str, Any]]:
+    """GIFT replied-by posterior amendment: a UNK / weak-Inform turn whose replied-by child gives
+    Advise/Comfort (-> it was a help request), Arrange (-> it was a report), Oppose (-> it was a
+    proposal, Arrange) or a hazard/SOP cue
+    (-> help request) is re-read; a weak reply to a help request / complaint that carries an SOP cue
+    is re-read as Advise. -> {turn_id: {from_fine, gift_fine, via, evidence_turn}}."""
+    fine = {t.turn_id: lb["fine"] for t, lb in zip(turns, labels)}
+    text = {t.turn_id: t.text for t in turns}
+    out: Dict[int, Dict[str, Any]] = {}
+    for tid in graph["node_ids"]:
+        cur = fine[tid]
+        if cur not in GIFT_WEAK_INTENTS:
+            continue
+        for c in graph["replied_by"][tid]:
+            new = GIFT_CHILD_AMEND.get(fine[c]) or ("Ask_for_help" if _gift_has_sop_cue(text[c]) else None)
+            if new and new != cur:
+                out[tid] = {"from_fine": cur, "gift_fine": new, "via": "replied-by", "evidence_turn": c}
+                break
+        else:
+            p = graph["reply_to"].get(tid)
+            if p is not None and fine[p] in GIFT_HELP_SEEKING and _gift_has_sop_cue(text[tid]):
+                out[tid] = {"from_fine": cur, "gift_fine": "Advise", "via": "reply-to", "evidence_turn": p}
+    return out
+
+
+def gift_boost_transitions(turns: List[UtteranceTurn], labels: List[dict], graph: Dict[str, Any],
+                           amendments: Dict[int, Dict[str, Any]], transitions: List[Dict],
+                           thread_of: Optional[Dict[int, str]] = None,
+                           speaker_roles: Optional[Dict[str, str]] = None) -> List[Dict]:
+    """Tag transitions lying on a GIFT reply-to edge (gift_phi, gift_weight = phi * staging weight) and add
+    the graph-induced chains unlocked by amended intents. Returns the merged, sorted transition list."""
+    thread_of = thread_of or {t.turn_id: t.thread_id for t in turns}
+    by_id = {t.turn_id: t for t in turns}
+    fine = {t.turn_id: lb["fine"] for t, lb in zip(turns, labels)}
+    fine.update({tid: a["gift_fine"] for tid, a in amendments.items()})
+    phi = GIFT_EDGE_WEIGHTS["reply-to"]
+    seen = {(x["from_turn"], x["to_turn"]) for x in transitions}
+    for x in transitions:
+        on_edge = graph["reply_to"].get(x["to_turn"]) == x["from_turn"]
+        x["gift_edge"] = "reply-to" if on_edge else "indirect-reply"
+        x["gift_phi"] = phi if on_edge else GIFT_EDGE_WEIGHTS["indirect-reply"]
+        x["gift_weight"] = round(x["gift_phi"] * TRANSITION_WEIGHT[x["type"]], 3)
+    added: List[Dict] = []
+    for child, parent in graph["reply_to"].items():
+        if (parent, child) in seen or not (parent in amendments or child in amendments):
+            continue
+        src, tgt = by_id[parent], by_id[child]
+        if src.speaker_id == tgt.speaker_id:
+            continue
+        m = match_mintrec_transition([(parent, fine[parent], src.text)], fine[child], tgt.text)
+        if not m:
+            continue
+        tr = build_transition(m[0], thread_of.get(child, tgt.thread_id),
+                              (parent, src.speaker_id, fine[parent], src.text),
+                              (child, tgt.speaker_id, fine[child], tgt.text), speaker_roles, 1)
+        tr.update({"gift_edge": "reply-to", "gift_phi": phi, "graph_induced": True,
+                   "gift_weight": round(phi * TRANSITION_WEIGHT[tr["type"]] * 1.5, 3)})
+        added.append(tr)
+    return sorted(transitions + added, key=lambda x: (x["to_turn"], x["from_turn"]))
+
+
+def gift_infer_roles(turns: List[UtteranceTurn], graph: Dict[str, Any], roles: Dict[str, str],
+                     unresolved: List[str]) -> Dict[str, Tuple[str, Dict[str, Any]]]:
+    """Graph-induced role for speakers without lexical self-cues: count reply-to / replied-by edges exchanged
+    with role-resolved meeting partners, then score the extended roles NOT held by those partners by
+    topic cues on the speaker's own edge turns (phi reply-self) and the partners' edge turns (phi reply-to /
+    replied-by). -> {speaker: (role, evidence)} for speakers clearing both thresholds."""
+    text = {t.turn_id: _norm(t.text) for t in turns}
+    sp_of = graph["speaker_of"]
+    ext_roles = {r for r, _ in EXTENDED_ROLE_CUES}
+    out: Dict[str, Tuple[str, Dict[str, Any]]] = {}
+    for sp in unresolved:
+        partners: Dict[str, int] = {}
+        scores: Dict[str, float] = {}
+        n_to = n_by = 0
+        for child, parent in graph["reply_to"].items():
+            if sp_of[child] == sp and roles.get(sp_of[parent]) in ext_roles:
+                mine, other, kind = child, parent, "reply-to"
+                n_to += 1
+            elif sp_of[parent] == sp and roles.get(sp_of[child]) in ext_roles:
+                mine, other, kind = parent, child, "replied-by"
+                n_by += 1
+            else:
+                continue
+            partners[sp_of[other]] = partners.get(sp_of[other], 0) + 1
+            for role, cues in GRAPH_ROLE_TOPIC_CUES:
+                hits = (GIFT_EDGE_WEIGHTS["reply-self"] * sum(c in text[mine] for c in cues)
+                        + GIFT_EDGE_WEIGHTS[kind] * sum(c in text[other] for c in cues))
+                if hits:
+                    scores[role] = scores.get(role, 0.0) + hits
+        held = {roles[p] for p in partners}
+        cands = {r: s for r, s in scores.items() if r not in held}
+        if n_to + n_by < GRAPH_ROLE_MIN_EDGES or not cands:
+            continue
+        role, score = max(cands.items(), key=lambda kv: kv[1])
+        if score >= GRAPH_ROLE_MIN_SCORE:
+            out[sp] = (role, {"label": f"{role} (graph_inferred)", "reply_to_edges": n_to,
+                              "replied_by_edges": n_by,
+                              "partners": {p: roles[p] for p in sorted(partners)},
+                              "topic_scores": {r: round(s, 2) for r, s in sorted(scores.items())}})
+    return out
+
+
+# ------------- Upgrade E: Bi-CL bi-level session-prototype disentanglement (Zhang et al., Tsinghua/NUS/SMU)
+BICL_DOMAIN_TOKENS = ("長照", "照服員", "居服員", "居服", "知識庫", "居督", "督導", "法規", "小照", "個案",
+                      "家屬", "機構", "主任", "案家", "緊急", "按鍵", "介面", "聲紋", "綁定", "AI", "APP",
+                      "回答", "多元", "經驗", "刑法", "暴力", "實驗", "學生", "研究")
+BICL_MENTION_CUES = ("主任", "督導", "居督", "照服員", "居服員", "家屬", "老師", "學生", "小照", "長輩", "個案")
+BICL_STOP_CHARS = set("的了是我你他她它在有和也都就這那嗯對啊喔呢吧嗎呀哦哈很要會不說個們一然後因為所以可以")
+BICL_W_OWN, BICL_W_CONTEXT, BICL_W_DOMAIN = 1.0, 0.5, 2.0   # u_i n-grams, (u_{i-1}, u_{i+1}) n-grams, domain
+BICL_W_SPEAKER, BICL_W_MENTION = 0.6, 1.0                   # multi-hot speaker s(i) and mention vector m_i
+BICL_SPEAKER_CONT_BONUS = 0.04  # s(i) == s(j) local continuity: neighbour in the same session pulls u_i
+BICL_TURNS_PER_SESSION = 6      # K <= max(2, floor(N_substantive / 6))
+BICL_MERGE_SIM = 0.45           # prototypes this close are one session
+BICL_SWITCH_MARGIN = 0.03       # E-step hysteresis against prototype churn
+BICL_EM_ITERS = 8
+BICL_MICRO_MAX = 2              # sessions with <= 2 turns are micro-threads
+BICL_MICRO_OWN_MIN = 0.05       # E-step moves need own-content overlap with the target (or a sandwich)
+
+
+def _bicl_tokens(text: str) -> set:
+    t = re.sub(r"[\s，。,.!！?？、~～…:：;；\"'()（）]", "", text or "")
+    grams = {t[i:i + 2] for i in range(len(t) - 1) if not (set(t[i:i + 2]) & BICL_STOP_CHARS)}
+    return grams
+
+
+def _bicl_vectors(nodes: List[UtteranceTurn], keyword_fn=None,
+                  own_only: bool = False) -> List[Dict[str, float]]:
+    """Utterance-level v_i: bidirectional context window (u_{i-1}, u_i, u_{i+1}) n-grams + domain tokens,
+    concatenated with Bi-CL's multi-hot speaker s(i) and mention m_i features. own_only -> content of u_i
+    alone (n-grams, domain, mentions; no context, no speaker)."""
+    kw = keyword_fn or _bicl_tokens
+    grams = [kw(t.text) for t in nodes]
+    out: List[Dict[str, float]] = []
+    for i, t in enumerate(nodes):
+        v: Dict[str, float] = {}
+        if own_only:
+            for g in grams[i]:
+                v["g:" + g] = BICL_W_OWN
+            txt = _norm(t.text)
+            v.update({"d:" + d: BICL_W_DOMAIN for d in BICL_DOMAIN_TOKENS if d in txt})
+            v.update({"m:" + m: BICL_W_MENTION for m in BICL_MENTION_CUES if m in txt})
+            out.append(v)
+            continue
+        for j, w in ((i - 1, BICL_W_CONTEXT), (i, BICL_W_OWN), (i + 1, BICL_W_CONTEXT)):
+            if 0 <= j < len(nodes):
+                for g in grams[j]:
+                    v["g:" + g] = max(v.get("g:" + g, 0.0), w)
+                txt = _norm(nodes[j].text)
+                for d in BICL_DOMAIN_TOKENS:
+                    if d in txt:
+                        v["d:" + d] = max(v.get("d:" + d, 0.0), BICL_W_DOMAIN * (w / BICL_W_OWN))
+        v["s:" + t.speaker_id] = BICL_W_SPEAKER
+        for m in BICL_MENTION_CUES:
+            if m in _norm(t.text):
+                v["m:" + m] = BICL_W_MENTION
+        out.append(v)
+    return out
+
+
+def _vadd(acc: Dict[str, float], v: Dict[str, float], sign: float = 1.0) -> None:
+    for k, x in v.items():
+        acc[k] = acc.get(k, 0.0) + sign * x
+
+
+def _cos(a: Dict[str, float], b: Dict[str, float]) -> float:
+    if not a or not b:
+        return 0.0
+    if len(a) > len(b):
+        a, b = b, a
+    dot = sum(x * b.get(k, 0.0) for k, x in a.items())
+    na = sum(x * x for x in a.values()) ** 0.5
+    nb = sum(x * x for x in b.values()) ** 0.5
+    return dot / (na * nb) if na and nb else 0.0
+
+
+def bi_cl_disentangle_threads(turns: List[UtteranceTurn], thread_of: Optional[Dict[int, str]] = None,
+                              keyword_fn=None) -> Tuple[Dict[int, str], Dict[str, Any]]:
+    """Refine greedy preceding-only threads with Bi-CL's two levels: utterance vectors v_i vs. session
+    prototypes p_k = mean(v_j, j in s_k), unsupervised EM (E: leave-one-out nearest prototype + local
+    same-speaker continuity, M: recompute p_k) with K-estimation (merge prototypes while
+    K > max(2, N_substantive // 6) or cos(p_a, p_b) >= BICL_MERGE_SIM). Micro-threads have no prototype
+    besides themselves, so their turns flock to the dominant session. Noise turns keep their thread.
+    -> (refined thread_of, bi_cl_disentangle_summary). Merged sessions keep the larger thread's id."""
+    thread_of = dict(thread_of or {t.turn_id: t.thread_id for t in turns})
+    nodes = [t for t in turns if thread_of.get(t.turn_id, t.thread_id) not in NOISE_THREADS
+             and not is_agreement_only(t.text)]
+    raw = [thread_of.get(t.turn_id, t.thread_id) for t in nodes]
+    n = len(nodes)
+    k_max = max(2, n // BICL_TURNS_PER_SESSION)
+    summary: Dict[str, Any] = {"substantive_turns": n, "k_upper_bound": k_max,
+                               "raw_greedy_threads": len(set(raw)), "raw_thread_ids": sorted(set(raw))}
+    if n == 0:
+        summary.update({"estimated_k": 0, "refined_prototype_threads": 0, "refined_thread_ids": [],
+                        "prototype_cohesion_score": 0.0, "raw_cohesion_score": 0.0, "reassigned_turns": [],
+                        "em_iterations": 0})
+        return thread_of, summary
+    vecs = _bicl_vectors(nodes, keyword_fn)
+    own = _bicl_vectors(nodes, keyword_fn, own_only=True)
+    first_seen = {}
+    for i, lab in enumerate(raw):
+        first_seen.setdefault(lab, i)
+    assign = list(raw)
+
+    def prototypes() -> Dict[str, Tuple[Dict[str, float], int]]:
+        sums: Dict[str, Dict[str, float]] = {}
+        cnt: Dict[str, int] = {}
+        for v, lab in zip(vecs, assign):
+            _vadd(sums.setdefault(lab, {}), v)
+            cnt[lab] = cnt.get(lab, 0) + 1
+        return {lab: ({k: x / cnt[lab] for k, x in s.items()}, cnt[lab]) for lab, s in sums.items()}
+
+    def cohesion() -> float:
+        """Mean leave-one-out cos(v_i, p_k(i) without v_i); a singleton session scores 0, so
+        fragmentation into micro-threads is not rewarded."""
+        sums: Dict[str, Dict[str, float]] = {}
+        cnt: Dict[str, int] = {}
+        for v, lab in zip(vecs, assign):
+            _vadd(sums.setdefault(lab, {}), v)
+            cnt[lab] = cnt.get(lab, 0) + 1
+        tot = 0.0
+        for v, lab in zip(vecs, assign):
+            if cnt[lab] > 1:
+                rest = dict(sums[lab])
+                _vadd(rest, v, -1.0)
+                tot += _cos(v, rest)
+        return round(tot / n, 3)
+
+    def continuity(i: int, lab: str) -> float:
+        return sum(BICL_SPEAKER_CONT_BONUS for j in (i - 1, i + 1)
+                   if 0 <= j < n and nodes[j].speaker_id == nodes[i].speaker_id and assign[j] == lab)
+
+    raw_cohesion = cohesion()
+
+    def k_step() -> bool:
+        """Merge the closest prototype pair while K is over budget or two prototypes coincide."""
+        changed = False
+        while True:
+            protos = prototypes()
+            labs = sorted(protos, key=lambda l: (-protos[l][1], first_seen[l]))
+            if len(labs) < 2:
+                return changed
+            pairs = [(a, b) for i, a in enumerate(labs) for b in labs[i + 1:]]
+            if len(labs) > k_max:            # over budget: merge the closest contextual prototypes
+                best = max(((_cos(protos[a][0], protos[b][0]), a, b) for a, b in pairs), key=lambda x: x[0])
+            else:                            # coincidence test on own content (context leaks across interleaving)
+                own_p: Dict[str, Dict[str, float]] = {}
+                for j, lab in enumerate(assign):
+                    _vadd(own_p.setdefault(lab, {}), own[j])
+                best = max(((_cos(own_p[a], own_p[b]), a, b) for a, b in pairs), key=lambda x: x[0])
+                if best[0] < BICL_MERGE_SIM:
+                    return changed
+            keep, drop = best[1], best[2]   # labs is size-ordered, so `keep` is the larger session
+            assign[:] = [keep if lab == drop else lab for lab in assign]
+            changed = True
+
+    def may_move(i: int, lab: str, own_sums: Dict[str, Dict[str, float]]) -> bool:
+        """Within the K budget u_i only moves to session `lab` when it is a singleton session sandwiched inside
+        it (micro-thread fragmentation; a 2-turn interleaved topic is not) or shares own content with it:
+        context n-grams alone are boundary leakage."""
+        if (assign.count(assign[i]) == 1 and 0 < i < n - 1
+                and assign[i - 1] == lab and assign[i + 1] == lab):
+            return True
+        return _cos(own[i], own_sums.get(lab, {})) >= BICL_MICRO_OWN_MIN
+
+    # K-estimation over budget: each turn of a <= BICL_MICRO_MAX session joins its nearest established p_k
+    protos = prototypes()
+    established = [lab for lab, (_, c) in protos.items() if c > BICL_MICRO_MAX]
+    if established and len(protos) > k_max:
+        for i, lab in enumerate(list(assign)):
+            if protos[lab][1] <= BICL_MICRO_MAX:
+                assign[i] = max(established, key=lambda l: (_cos(vecs[i], protos[l][0]) + continuity(i, l),
+                                                            protos[l][1]))
+    iters = 0
+    for iters in range(1, BICL_EM_ITERS + 1):
+        changed = k_step()
+        sums: Dict[str, Dict[str, float]] = {}
+        cnt: Dict[str, int] = {}
+        for v, lab in zip(vecs, assign):
+            _vadd(sums.setdefault(lab, {}), v)
+            cnt[lab] = cnt.get(lab, 0) + 1
+        own_sums: Dict[str, Dict[str, float]] = {}
+        for j, lab in enumerate(assign):
+            _vadd(own_sums.setdefault(lab, {}), own[j])
+        new_assign = list(assign)
+        for i, (v, cur) in enumerate(zip(vecs, assign)):          # E-step (leave-one-out prototypes)
+            scores = {}
+            for lab, s in sums.items():
+                c = cnt[lab] - (1 if lab == cur else 0)
+                if c <= 0:
+                    scores[lab] = 0.0
+                    continue
+                proto = dict(s)
+                if lab == cur:
+                    _vadd(proto, v, -1.0)
+                scores[lab] = _cos(v, proto) + continuity(i, lab)   # + s(i) == s(j) local continuity
+            best = max(scores, key=lambda l: (scores[l], cnt[l]))
+            if best != cur and scores[best] - scores[cur] >= BICL_SWITCH_MARGIN and may_move(i, best, own_sums):
+                new_assign[i] = best
+        if new_assign != assign:                                    # M-step happens in prototypes()
+            assign[:] = new_assign
+            changed = True
+        if not changed:
+            break
+    k_step()
+    refined = dict(thread_of)
+    reassigned = []
+    for t, old, new in zip(nodes, raw, assign):
+        refined[t.turn_id] = new
+        if old != new:
+            reassigned.append({"turn_id": t.turn_id, "from": old, "to": new})
+    summary.update({"estimated_k": len(set(assign)), "refined_prototype_threads": len(set(assign)),
+                    "refined_thread_ids": sorted(set(assign)), "prototype_cohesion_score": cohesion(),
+                    "raw_cohesion_score": raw_cohesion, "reassigned_turns": reassigned, "em_iterations": iters})
+    return refined, summary
+
+
 class XiaoZhaoMPCEngine:
     """小照 × 樹莓派 5 多人多輪意圖偵測核心 (Addressee + Disentanglement + OOD + P0)"""
 
@@ -628,12 +1039,15 @@ class XiaoZhaoMPCEngine:
         # transitions / fusion run on upstream topic threads when given, else on the engine's TD/MF threads
         thread_of = {t.turn_id: (t.thread_id if t.thread_id == "T_CHITCHAT" or pre_thread[t.turn_id] in ("T0", "")
                                  else pre_thread[t.turn_id]) for t in session.turns}
+        # Upgrade E: Bi-CL session-prototype refinement of the (greedy) upstream threads
+        thread_of, bi_cl_summary = bi_cl_disentangle_threads(session.turns, thread_of)
 
         # Upgrade A: session-level roles + who->whom
         role_sources: Dict[str, str] = {}
+        graph_role_evidence: Dict[str, Any] = {}
         speaker_roles = infer_session_speaker_roles(session.turns, pre_role,
                                                     role_priors or getattr(session, "role_priors", None),
-                                                    role_sources)
+                                                    role_sources, graph_role_evidence)
         role_detail: Dict[int, Tuple[str, str, str]] = {}
         for i, t in enumerate(session.turns):
             role = speaker_roles.get(t.speaker_id, t.inferred_role)
@@ -660,11 +1074,37 @@ class XiaoZhaoMPCEngine:
         mintrec_summary = summarize_mintrec(mintrec_labels)
         mintrec_summary["per_turn"] = [{"turn_id": t.turn_id, **lb} for t, lb in zip(session.turns, mintrec_labels)]
 
+        # Upgrade D: GIFT 4-edge graph + replied-by posterior amendment (feeds B + C)
+        gift = build_gift_graph(session.turns, thread_of,
+                                {tid: d[1] for tid, d in role_detail.items() if _SPEAKER_ID_RE.match(d[1] or "")})
+        amendments = gift_amend_intents(session.turns, mintrec_labels, gift)
+
         # Upgrade B + C
         transitions = detect_mintrec_transitions(session.turns, mintrec_labels, thread_of, speaker_roles)
+        transitions = gift_boost_transitions(session.turns, mintrec_labels, gift, amendments, transitions,
+                                             thread_of, speaker_roles)
         session.dst_slots["cross_turn_fusion"] = aggregate_cross_turn_slots(
             session.turns, speaker_roles, thread_of, transitions, safety_level)
         fine_of = {t.turn_id: lb["fine"] for t, lb in zip(session.turns, mintrec_labels)}
+        fusion = session.dst_slots["cross_turn_fusion"]
+        anchor = (fusion["issue_triggers"][0]["turn_id"] if fusion["issue_triggers"] else
+                  next((tid for tid in reversed(gift["node_ids"])), last_turn.turn_id))
+        role_clarified = [t.turn_id for t in session.turns if role_sources.get(t.speaker_id) == GRAPH_INFERRED_SOURCE]
+        gift_summary = {
+            "edge_counts": gift_edge_counts(gift),
+            "edge_weights_phi": dict(GIFT_EDGE_WEIGHTS),
+            "replied_by_amendments": len(set(amendments) | set(role_clarified)),
+            "intent_amendments": [{"turn_id": tid, **a} for tid, a in sorted(amendments.items())],
+            "graph_inferred_roles": {sp: ev["label"] for sp, ev in graph_role_evidence.items()},
+            "graph_role_evidence": graph_role_evidence,
+            "graph_induced_transitions": sum(1 for x in transitions if x.get("graph_induced")),
+            "anchor_turn_topology": {
+                "turn_id": anchor,
+                "basis": "issue_trigger" if fusion["issue_triggers"] else "session_trigger",
+                "reply_to_turn_id": gift["reply_to"].get(anchor),
+                "replied_by_turn_ids": list(gift["replied_by"].get(anchor, [])),
+            },
+        }
 
         return {
             "client_event_id": str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{session.session_id}_{last_turn.turn_id}")),
@@ -682,6 +1122,8 @@ class XiaoZhaoMPCEngine:
             "speaker_roles": speaker_roles,
             "speaker_role_sources": role_sources,
             "mintrec_transitions": transitions,
+            "gift_graph_summary": gift_summary,
+            "bi_cl_disentangle_summary": bi_cl_summary,
             "turns_detail": [
                 {
                     "turn_id": t.turn_id,
@@ -694,6 +1136,8 @@ class XiaoZhaoMPCEngine:
                     "thread_id": t.thread_id,
                     "source_thread_id": thread_of[t.turn_id],
                     "mintrec_fine": fine_of[t.turn_id],
+                    "gift_fine": amendments.get(t.turn_id, {}).get("gift_fine", fine_of[t.turn_id]),
+                    "gift_reply_to": gift["reply_to"].get(t.turn_id),
                     "text": t.text,
                 }
                 for t in session.turns
@@ -979,6 +1423,81 @@ def build_5_benchmark_scenarios() -> List[DialogueSessionState]:
         ),
     ]
 
+def _gift_bicl_unit_tests() -> None:
+    """v7.5 unit tests: Bi-CL thread consolidation + GIFT 4-edge topology / replied-by amendment / roles."""
+    U = UtteranceTurn
+    # --- Bi-CL: micro-threads inside a dominant session flock to its prototype (iv2 45:45 shape)
+    frag = [U(1, 0, "speaker_2", "unknown", "不是現在學生用的是每個月只有200", thread_id="T_TOPIC_11"),
+            U(2, 6, "speaker_2", "unknown", "現在就做實驗", thread_id="T_TOPIC_12"),
+            U(3, 8, "speaker_3", "unknown", "那如果說後續真的緊急按鍵大的時候就不需要", thread_id="T_TOPIC_10"),
+            U(4, 15, "speaker_2", "unknown", "我覺得研究一下緊急按鍵說", thread_id="T_TOPIC_10"),
+            U(5, 21, "speaker_3", "unknown", "怎麼讓緊急事件第一時間通知居督", thread_id="T_TOPIC_10"),
+            U(6, 24, "speaker_3", "unknown", "免費了25年他發揮最大的效益這個", thread_id="T_TOPIC_13"),
+            U(7, 47, "speaker_3", "unknown", "如果說這個緊急按鍵是這個", thread_id="T_TOPIC_10"),
+            U(8, 51, "speaker_3", "unknown", "方式是開發一個主動每天推播的緊急關懷", thread_id="T_TOPIC_10")]
+    refined, bs = bi_cl_disentangle_threads(frag)
+    assert bs["raw_greedy_threads"] == 4 and bs["estimated_k"] == 1 <= bs["k_upper_bound"], bs
+    assert set(refined.values()) == {"T_TOPIC_10"}, refined
+    assert bs["prototype_cohesion_score"] > bs["raw_cohesion_score"], bs
+    # --- Bi-CL: genuinely interleaved topics survive (no lexical overlap, within the K budget)
+    inter = [U(1, 0, "speaker_1", "unknown", "今天下午的復健課程幾點開始呢", thread_id="T_A"),
+             U(2, 3, "speaker_2", "unknown", "復健課程是下午三點開始喔", thread_id="T_A"),
+             U(3, 6, "speaker_3", "unknown", "那晚餐大家想要吃什麼", thread_id="T_B"),
+             U(4, 9, "speaker_1", "unknown", "復健課程三點開始我會準時到", thread_id="T_A"),
+             U(5, 13, "speaker_3", "unknown", "晚餐想吃稀飯和青菜就好", thread_id="T_B")]
+    refined, bs = bi_cl_disentangle_threads(inter)
+    assert bs["estimated_k"] == 2 and refined[3] == refined[5] == "T_B", (refined, bs)
+    s = DialogueSessionState("S_BICL", "C")
+    s.turns = [U(t.turn_id, t.timestamp, t.speaker_id, "unknown", t.text, thread_id=t.thread_id) for t in frag]
+    r = XiaoZhaoMPCEngine().analyze_session(s)
+    bsum = r["bi_cl_disentangle_summary"]
+    assert (bsum["raw_greedy_threads"], bsum["refined_prototype_threads"]) == (4, 1), bsum
+    assert {d["source_thread_id"] for d in r["turns_detail"]} == {"T_TOPIC_10"}, r["turns_detail"]
+
+    # --- GIFT: 4-edge topology, phi, explicit matrix
+    g_turns = [U(1, 0, "speaker_1", "unknown", "我昨天去那邊遇到一個阿伯一直拉我"),
+               U(2, 5, "speaker_2", "unknown", "我建議你先安撫他然後回報居督"),
+               U(3, 9, "speaker_1", "unknown", "那個狀況我不知道"),
+               U(4, 14, "speaker_2", "unknown", "下次我們先做一個流程"),
+               U(5, 20, "speaker_1", "unknown", "對"),                               # backchannel: not a node
+               U(6, 25, "speaker_3", "unknown", "那我們每週都開會檢討"),
+               U(7, 30, "speaker_1", "unknown", "不用啦不是這樣")]
+    g = build_gift_graph(g_turns)
+    assert g["reply_to"] == {2: 1, 3: 2, 4: 3, 6: 4, 7: 6} and g["replied_by"][1] == [2], g
+    n = len(g["node_ids"])
+    assert gift_edge_counts(g) == {"reply-to": 5, "replied-by": 5, "reply-self": n,
+                                   "indirect-reply": n * n - n - 10}, gift_edge_counts(g)
+    mat = gift_edge_matrix(g)
+    assert mat[0][0] == "reply-self" and mat[1][0] == "reply-to" and mat[0][1] == "replied-by"
+    assert mat[0][2] == "indirect-reply" and {e for row in mat for e in row} == set(GIFT_EDGE_TYPES)
+    # --- GIFT: replied-by posterior amendment (Advise / Arrange / Oppose children)
+    labels = [classify_mintrec_taxonomy(t.text) for t in g_turns]
+    am = gift_amend_intents(g_turns, labels, g)
+    assert am[1]["gift_fine"] == "Ask_for_help" and am[1]["via"] == "replied-by" and am[1]["evidence_turn"] == 2
+    assert am[3]["gift_fine"] == "Inform" and am[3]["evidence_turn"] == 4, am
+    assert am[6]["gift_fine"] == "Arrange" and am[6]["evidence_turn"] == 7, am      # opposed -> was a proposal
+    s = DialogueSessionState("S_GIFT", "C")
+    s.turns = g_turns
+    r = XiaoZhaoMPCEngine().analyze_session(s)
+    gs = r["gift_graph_summary"]
+    assert gs["edge_weights_phi"] == GIFT_EDGE_WEIGHTS and gs["replied_by_amendments"] == 3, gs
+    assert gs["edge_counts"]["reply-to"] == 5 and gs["graph_induced_transitions"] >= 2, gs
+    assert {"PROBLEM_TO_GUIDANCE", "REPORT_TO_ACTION_PLAN", "REQUEST_TO_REFUSAL"} <= {
+        x["type"] for x in r["mintrec_transitions"] if x.get("graph_induced")}, r["mintrec_transitions"]
+    # --- GIFT: graph-induced role for a cue-less third participant (iv3 speaker_3 shape)
+    mt = []
+    for k in range(4):
+        b = 3 * k * 10
+        mt += [U(3 * k + 1, b, "speaker_1", "unknown", "我們後端的知識庫系統可以幫大家裝綁定碼"),
+               U(3 * k + 2, b + 5, "speaker_3", "unknown", "那這個居督可以綁哪一個居服員的個案"),
+               U(3 * k + 3, b + 9, "speaker_2", "unknown", "主任跟督導會量身打造綁定的規則")]
+    src: Dict[str, str] = {}
+    ev: Dict[str, Any] = {}
+    roles = infer_session_speaker_roles(mt, sources_out=src, graph_evidence_out=ev)
+    assert roles == {"speaker_1": ROLE_RESEARCHER, "speaker_3": ROLE_SUPERVISOR, "speaker_2": ROLE_DIRECTOR}, roles
+    assert src["speaker_3"] == GRAPH_INFERRED_SOURCE and ev["speaker_3"]["label"].endswith("(graph_inferred)"), ev
+
+
 if __name__ == "__main__":
     engine = XiaoZhaoMPCEngine()
     scenarios = build_5_benchmark_scenarios()
@@ -1175,6 +1694,7 @@ if __name__ == "__main__":
     assert _l4["mintrec_transition"]["from_turn"] == 1 and _l4["mintrec_transition"]["lag"] == 2, _l4
     assert [x["type"] for x in pf4.transitions] == ["REQUEST_TO_COMPLIANCE_OR_HESITATION"], pf4.transitions
 
+    _gift_bicl_unit_tests()
     if "--quiet-test" in sys.argv:
         print(f"MPC_CORE_OK (env={'PI' if ON_PI else 'MAC_MOCK'}, scenarios={len(results)})")
         sys.exit(0)

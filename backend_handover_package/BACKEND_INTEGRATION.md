@@ -43,10 +43,39 @@ route_target = result["route_target"]           # 例如 'RAG_STANDARD_SOP' 或 
 | 欄位 | 說明 |
 |---|---|
 | `speaker_roles` | `speaker_N -> role`。居家情境沿用 `caregiver/family/elder`；會議/訪談情境推論 `supervisor_居督`、`caregiver_照服員`、`researcher_主持團隊`、`director_主任`。不建聲紋庫。 |
-| `speaker_role_sources` | 每位說話者角色來源：`session_cues` / `prefilled` / `recording_prior` / `no_evidence`。 |
+| `speaker_role_sources` | 每位說話者角色來源：`session_cues` / `prefilled` / `recording_prior` / `graph_inferred` / `no_evidence`。 |
 | `turns_detail[].who_to_whom_role` | 例如 `caregiver_照服員 -> supervisor_居督`；另有 `inferred_role`、`addressee_speaker`、`mintrec_fine`、`source_thread_id`。 |
 | `mintrec_transitions` | 同話題串、不同說話者、往後 3 個實質輪次內的意圖轉換：`PROBLEM_TO_GUIDANCE`、`REQUEST_TO_COMPLIANCE_OR_HESITATION`（`rag_intervention=true`）、`REQUEST_TO_REFUSAL`、`REPORT_TO_ACTION_PLAN`、`CRISIS_ESCALATION_CHAIN`。危機鏈的 `live_hazard=false`（例如「像剛我們說的暴力性騷」這類回顧／舉例）時 `priority=PROTOCOL_DESIGN_DISCUSSION`，不升級。 |
 | `dst_slots.cross_turn_fusion` | `issue_triggers`（`raised_by`）、`proposed_resolutions`（`proposed_by`）、`participating_roles`、`consensus_state` ∈ `CONSENSUS_ACTIONABLE` / `IMMEDIATE_ESCALATION` / `OPEN_DISCUSSION`。 |
 
 `role_priors`（或 `DialogueSessionState.role_priors`）可傳入整段錄音推論出的角色，作為短片段無角色線索時的後備；每份 `real_interviews_extracted_samples.json` 訪談附 `recording_speaker_roles`。
 `AmbientIntentPreFetcher` 在意圖鏈完成時提高封包 `staging_priority`；送出的 payload 附 `mintrec_transitions` 與 `rag_intervention_required`。
+
+## 5. v7.4 GIFT 4-edge graph (Gu et al., *GIFT: Graph-Induced Fine-Tuning for MPC Understanding*)
+Substantive turns form a graph with edges `reply-self` / `reply-to` / `replied-by` / `indirect-reply`. A turn's `reply-to` parent is the latest earlier turn of its addressee speaker in the same thread; otherwise it is the discourse latch, which also covers A-B-A adjacency, within 180 s. Edge weights φ: `GIFT_EDGE_WEIGHTS = {reply-self: 1.0, reply-to: 0.92, replied-by: 0.88, indirect-reply: 0.45}`.
+
+| 欄位 | 說明 |
+|---|---|
+| `gift_graph_summary.edge_counts` | 4 種邊的有序配對數（`indirect-reply = N² − N − 2R`）。 |
+| `gift_graph_summary.edge_weights_phi` | 上述 4 個 φ(e_{q,v})。 |
+| `gift_graph_summary.replied_by_amendments` | 經 `replied-by` / `reply-to` 邊修正意圖或角色的輪次數；明細見 `intent_amendments`、`graph_inferred_roles`、`graph_role_evidence`。 |
+| `gift_graph_summary.anchor_turn_topology` | 主議題觸發輪（無則取最後實質輪）的 `reply_to_turn_id` 與 `replied_by_turn_ids`。 |
+| `turns_detail[].gift_fine` / `gift_reply_to` | 圖修正後的有效意圖、直接回覆的父輪次。 |
+| `mintrec_transitions[].gift_edge` / `gift_phi` / `gift_weight` | 意圖鏈是否落在 `reply-to` 邊上；`graph_induced=true` 為修正意圖後新增的鏈。 |
+
+When a speaker has no lexical self-cue in a meeting, the speaker's role is inferred from the `reply-to` / `replied-by` edges they exchange with participants whose roles are already known. The partners' roles are excluded, and topic cues are weighted by φ. `speaker_roles` keeps the canonical role (for example `supervisor_居督`), and `speaker_role_sources` marks it as `graph_inferred`. Example: in interview3_full, `speaker_3` resolves to `supervisor_居督 (graph_inferred)`.
+Since v7.5, an `Oppose` reply to a weak turn marks that turn as a proposal (`Arrange`), which unlocks `REQUEST_TO_REFUSAL`.
+
+## 6. v7.5 Bi-CL session-prototype disentanglement (Zhang et al., *Conversation Disentanglement with Bi-Level Contrastive Learning*)
+`bi_cl_disentangle_threads(turns, thread_of)` refines greedy, preceding-only thread splits at two levels:
+- **Utterance level:** each turn gets a vector v_i built from the n-grams and domain tokens of the context window (u_{i-1}, u_i, u_{i+1}), plus the speaker s(i) and the mentions m_i.
+- **Session level:** each thread k has a prototype p_k, the mean of its members' vectors.
+
+Refinement runs as unsupervised EM: each turn is reassigned to the nearest leave-one-out prototype, with a bonus for local same-speaker continuity. The number of threads is estimated with K ≤ max(2, ⌊N_substantive / 6⌋). Over that budget, every turn in a micro-thread (≤ 2 turns) joins its nearest established session. Within budget, a turn moves only if its own content overlaps the target session, or if it is a single-turn thread sitting between two turns of that session. This keeps genuinely interleaved topics apart. `general_mpc_disentangle()` runs the same refinement in 300 s blocks. In the output, `thread_id` is the Bi-CL thread and `greedy_thread_id` is the original greedy split. Hotspots are still ranked by greedy interleave.
+
+| 欄位 | 說明 |
+|---|---|
+| `bi_cl_disentangle_summary.estimated_k` | 估計的 session 數 K（上限見 `k_upper_bound`）。 |
+| `bi_cl_disentangle_summary.raw_greedy_threads` / `refined_prototype_threads` | 貪婪切分串數 → 原型精煉後串數（另附 `raw_thread_ids` / `refined_thread_ids` / `reassigned_turns`）。 |
+| `bi_cl_disentangle_summary.prototype_cohesion_score` | 留一法 cos(v_i, p_k(i)) 平均（單輪串記 0，碎片化不加分）；對照 `raw_cohesion_score`。 |
+
