@@ -5,6 +5,7 @@
 - Role: Multi-party audio capture, addressee recognition, dialogue disentanglement (TD/MF + Bi-CL), MIntRec intent transitions, GIFT 4-edge graph + GSN reply/speaker flow, cross-turn slot fusion, and IoT API payload generation for LINE LIFF confirmation.
 - Privacy Rule: NO pre-stored family voiceprint DB. Use speaker_1/2/3 diarization + context role inference.
 - Auth Rule: Hit `/api/iot/v1/utterances` and `/api/transcripts/{id}/confirm`.
+- Pi env vars (`src/config.py`): `XIAOZHAO_BT_DEVICE` (ALSA device for `arecord -D`, default `default`), `XIAOZHAO_WHISPER_API_URL` (empty = local faster_whisper, then demo sentences), `XIAOZHAO_WHISPER_API_TIMEOUT`, `XIAOZHAO_BACKEND_URL` (default `http://127.0.0.1:8000`).
 
 ## Token-Saving Rules for Claude (STRICT)
 1. DO NOT read whole files unless necessary; use `grep` or line-range reads.
@@ -14,12 +15,12 @@
 
 ## File Groups
 **(A) Pi runtime, Mode A** (synced by `scripts/sync_to_pi.sh`; verified by `tests/harness.py --pi`)
-- `src/config.py`: Mac (`MOCK_PI=1`) vs Pi (`ON_PI=True`) detection + paths.
+- `src/config.py`: Mac (`MOCK_PI=1`) vs Pi (`ON_PI=True`) detection, paths, BT device, Whisper API URL.
 - `src/mpc_core.py`: Addressee + TD/MF/Bi-CL disentanglement + MIntRec + GIFT + GSN + DST fusion + Whisper JSON loader.
-- `src/exp1_pi_audio_check.py`: `arecord` capture (synthetic WAV fallback off the Pi).
-- `src/edge_state_machine.py`: Pi state machine + offline queue (idempotent by `client_event_id`).
+- `src/exp1_pi_audio_check.py`: `arecord -D <BT device>` capture + `compute_wav_acoustics` (rms_energy / zcr_pitch).
+- `src/edge_state_machine.py`: Pi state machine; POSTs each MPC payload, queues on network/5xx failure, flush re-POSTs and removes successes; 4xx goes to the dead-letter `offline_queue.rejected.jsonl` (idempotent by `client_event_id`).
 - `src/iot_api_client.py`: HTTP client for the two backend endpoints.
-- `src/run_live_audio.py`: record -> local whisper (fallback: demo sentences) -> MPC -> IoT.
+- `src/run_live_audio.py`: record -> XiaoZhao Whisper API (fallback: local whisper -> demo) -> MPC -> IoT.
 
 **(B) Offline interview corpus (Mac only)**
 - `src/interview_analyzer.py`, `src/batch_corpus_builder.py`, `src/retranscribe_hotspots.py`.

@@ -10,7 +10,7 @@
 ### 樹莓派 → 後端 HTTP 介面
 | 端點 | Request body | 說明 |
 |---|---|---|
-| `POST /api/iot/v1/utterances` | `analyze_session()` 的完整輸出（格式同 `mpc_5_scenarios_handover.json` 的單一元素） | `client_event_id` 是 uuid5(`session_id`_`last_turn_id`)。Pi 離線時會先排隊再重送，所以後端必須以 `client_event_id` 做冪等去重。 |
+| `POST /api/iot/v1/utterances` | `analyze_session()` 的完整輸出（格式同 `mpc_5_scenarios_handover.json` 的單一元素） | `client_event_id` 是 uuid5(`session_id`_`last_turn_id`)，後端必須以它做冪等去重。回應碼規則：2xx 視為成功；**409 視為「已收過」，Pi 端當作成功並移出佇列**；連線失敗、5xx、408/425/429 時，Pi 會把完整 payload 放進離線佇列，稍後依序重送；其他 4xx 不會重試：該 payload 會移到 Pi 端的死信檔 `offline_queue.rejected.jsonl`（含 `http_status`、`rejected_at`、完整 `payload`），不留在重送佇列。請讓 4xx 只用於「內容本身有誤、重送也不會成功」的情況。 |
 | `POST /api/transcripts/{id}/confirm` | `{"confirmed_role_map": {"speaker_1": "<role>", ...}}` | LINE LIFF 確認 speaker → 角色對應後回寫。 |
 
 ## 2. 後端伺服器 3 行快速呼叫法 (Python)
