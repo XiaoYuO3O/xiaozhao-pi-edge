@@ -135,6 +135,17 @@
       "reassigned_turns": [],
       "em_iterations": 1
     },
+    "gsn_flow_summary": {
+      "iterations": 3,
+      "alpha": 0.25,
+      "schedule": "backward_then_forward",
+      "reply_edges_E": 0,
+      "speaker_edges_U": 0,
+      "parallel_sibling_branches": 0,
+      "multi_hop_paths_3iter": 0,
+      "mean_eta_reply_weight": 0.0,
+      "mean_lambda_speaker_weight": 0.0
+    },
     "turns_detail": [
       {
         "turn_id": 1,
@@ -334,6 +345,17 @@
       "reassigned_turns": [],
       "em_iterations": 1
     },
+    "gsn_flow_summary": {
+      "iterations": 3,
+      "alpha": 0.25,
+      "schedule": "backward_then_forward",
+      "reply_edges_E": 2,
+      "speaker_edges_U": 0,
+      "parallel_sibling_branches": 0,
+      "multi_hop_paths_3iter": 1,
+      "mean_eta_reply_weight": 0.7721,
+      "mean_lambda_speaker_weight": 0.0
+    },
     "turns_detail": [
       {
         "turn_id": 1,
@@ -492,6 +514,17 @@
       "reassigned_turns": [],
       "em_iterations": 1
     },
+    "gsn_flow_summary": {
+      "iterations": 3,
+      "alpha": 0.25,
+      "schedule": "backward_then_forward",
+      "reply_edges_E": 0,
+      "speaker_edges_U": 0,
+      "parallel_sibling_branches": 0,
+      "multi_hop_paths_3iter": 0,
+      "mean_eta_reply_weight": 0.0,
+      "mean_lambda_speaker_weight": 0.0
+    },
     "turns_detail": [
       {
         "turn_id": 1,
@@ -606,6 +639,17 @@
       "raw_cohesion_score": 0.0,
       "reassigned_turns": [],
       "em_iterations": 1
+    },
+    "gsn_flow_summary": {
+      "iterations": 3,
+      "alpha": 0.25,
+      "schedule": "backward_then_forward",
+      "reply_edges_E": 0,
+      "speaker_edges_U": 0,
+      "parallel_sibling_branches": 0,
+      "multi_hop_paths_3iter": 0,
+      "mean_eta_reply_weight": 0.0,
+      "mean_lambda_speaker_weight": 0.0
     },
     "turns_detail": [
       {
@@ -746,6 +790,17 @@
       "raw_cohesion_score": 0.777,
       "reassigned_turns": [],
       "em_iterations": 1
+    },
+    "gsn_flow_summary": {
+      "iterations": 3,
+      "alpha": 0.25,
+      "schedule": "backward_then_forward",
+      "reply_edges_E": 1,
+      "speaker_edges_U": 0,
+      "parallel_sibling_branches": 0,
+      "multi_hop_paths_3iter": 0,
+      "mean_eta_reply_weight": 0.6989,
+      "mean_lambda_speaker_weight": 0.0
     },
     "turns_detail": [
       {

@@ -19,31 +19,177 @@
     ],
     "dst_slots": {
       "service_code": "BA16_代購限制(不可代購成藥)",
-      "requester_to_target": "family -> caregiver"
+      "requester_to_target": "family -> caregiver",
+      "cross_turn_fusion": {
+        "dominant_threads": [
+          "T_TASK_MAIN"
+        ],
+        "issue_triggers": [
+          {
+            "label": "代購藥品/超範圍打掃",
+            "raised_by": "speaker_2",
+            "role": "family",
+            "turn_id": 1,
+            "thread_id": "T_TASK_MAIN",
+            "evidence": "普拿疼",
+            "mentions": 1,
+            "contributors": [
+              "speaker_2"
+            ]
+          }
+        ],
+        "proposed_resolutions": [],
+        "participating_roles": [
+          "family",
+          "caregiver"
+        ],
+        "participating_speakers": [
+          "speaker_2",
+          "speaker_3"
+        ],
+        "transition_types": [],
+        "consensus_state": "OPEN_DISCUSSION"
+      }
+    },
+    "mintrec_summary": {
+      "coarse_counts": {
+        "Achieve_Goals": 2,
+        "Express_Emotions_Attitudes": 1
+      },
+      "fine_counts": {
+        "Arrange": 1,
+        "Complain": 1,
+        "Inform": 1
+      },
+      "per_turn": [
+        {
+          "turn_id": 1,
+          "coarse": "Achieve_Goals",
+          "fine": "Arrange",
+          "modality_cue": "text"
+        },
+        {
+          "turn_id": 2,
+          "coarse": "Express_Emotions_Attitudes",
+          "fine": "Complain",
+          "modality_cue": "text"
+        },
+        {
+          "turn_id": 3,
+          "coarse": "Achieve_Goals",
+          "fine": "Inform",
+          "modality_cue": "text"
+        }
+      ]
+    },
+    "speaker_roles": {
+      "speaker_2": "family",
+      "speaker_1": "elder",
+      "speaker_3": "caregiver"
+    },
+    "speaker_role_sources": {
+      "speaker_2": "prefilled",
+      "speaker_1": "prefilled",
+      "speaker_3": "prefilled"
+    },
+    "mintrec_transitions": [],
+    "gift_graph_summary": {
+      "edge_counts": {
+        "reply-to": 0,
+        "replied-by": 0,
+        "reply-self": 2,
+        "indirect-reply": 2
+      },
+      "edge_weights_phi": {
+        "reply-self": 1.0,
+        "reply-to": 0.92,
+        "replied-by": 0.88,
+        "indirect-reply": 0.45
+      },
+      "replied_by_amendments": 0,
+      "intent_amendments": [],
+      "graph_inferred_roles": {},
+      "graph_role_evidence": {},
+      "graph_induced_transitions": 0,
+      "anchor_turn_topology": {
+        "turn_id": 1,
+        "basis": "issue_trigger",
+        "reply_to_turn_id": null,
+        "replied_by_turn_ids": []
+      }
+    },
+    "bi_cl_disentangle_summary": {
+      "substantive_turns": 2,
+      "k_upper_bound": 2,
+      "raw_greedy_threads": 1,
+      "raw_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "estimated_k": 1,
+      "refined_prototype_threads": 1,
+      "refined_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "prototype_cohesion_score": 0.754,
+      "raw_cohesion_score": 0.754,
+      "reassigned_turns": [],
+      "em_iterations": 1
+    },
+    "gsn_flow_summary": {
+      "iterations": 3,
+      "alpha": 0.25,
+      "schedule": "backward_then_forward",
+      "reply_edges_E": 0,
+      "speaker_edges_U": 0,
+      "parallel_sibling_branches": 0,
+      "multi_hop_paths_3iter": 0,
+      "mean_eta_reply_weight": 0.0,
+      "mean_lambda_speaker_weight": 0.0
     },
     "turns_detail": [
       {
         "turn_id": 1,
         "speaker_id": "speaker_2",
         "role_pre_filled": "family",
+        "inferred_role": "family",
         "addressee": "caregiver",
+        "addressee_speaker": "",
+        "who_to_whom_role": "family -> caregiver",
         "thread_id": "T_TASK_MAIN",
+        "source_thread_id": "T_TASK_MAIN",
+        "mintrec_fine": "Arrange",
+        "gift_fine": "Arrange",
+        "gift_reply_to": null,
         "text": "居服員小姐，待會麻煩順便幫我買兩盒普拿疼止痛藥好嗎？"
       },
       {
         "turn_id": 2,
         "speaker_id": "speaker_1",
         "role_pre_filled": "elder",
+        "inferred_role": "elder",
         "addressee": "family",
+        "addressee_speaker": "speaker_2",
+        "who_to_whom_role": "elder -> family",
         "thread_id": "T_CHITCHAT",
+        "source_thread_id": "T_CHITCHAT",
+        "mintrec_fine": "Complain",
+        "gift_fine": "Complain",
+        "gift_reply_to": null,
         "text": "今天中午的排骨便當菜色很鹹欸，電視八點檔又在重播。"
       },
       {
         "turn_id": 3,
         "speaker_id": "speaker_3",
         "role_pre_filled": "caregiver",
+        "inferred_role": "caregiver",
         "addressee": "system_xiaozhao",
+        "addressee_speaker": "system_xiaozhao",
+        "who_to_whom_role": "caregiver -> system_xiaozhao",
         "thread_id": "T_TASK_MAIN",
+        "source_thread_id": "T_TASK_MAIN",
+        "mintrec_fine": "Inform",
+        "gift_fine": "Inform",
+        "gift_reply_to": null,
         "text": "小照，家屬剛剛說的那樣可以嗎？"
       }
     ]
@@ -66,30 +212,194 @@
       3
     ],
     "filtered_out_turns": [],
-    "dst_slots": {},
+    "dst_slots": {
+      "cross_turn_fusion": {
+        "dominant_threads": [
+          "T_TASK_MAIN"
+        ],
+        "issue_triggers": [
+          {
+            "label": "代購藥品/超範圍打掃",
+            "raised_by": "speaker_2",
+            "role": "family",
+            "turn_id": 2,
+            "thread_id": "T_TASK_MAIN",
+            "evidence": "刷一刷",
+            "mentions": 2,
+            "contributors": [
+              "speaker_2",
+              "speaker_3"
+            ]
+          },
+          {
+            "label": "暴力性騷",
+            "raised_by": "speaker_3",
+            "role": "caregiver",
+            "turn_id": 3,
+            "thread_id": "T_TASK_MAIN",
+            "evidence": "性騷",
+            "mentions": 1,
+            "contributors": [
+              "speaker_3"
+            ]
+          }
+        ],
+        "proposed_resolutions": [],
+        "participating_roles": [
+          "elder",
+          "family",
+          "caregiver"
+        ],
+        "participating_speakers": [
+          "speaker_1",
+          "speaker_2",
+          "speaker_3"
+        ],
+        "transition_types": [],
+        "consensus_state": "OPEN_DISCUSSION"
+      }
+    },
+    "mintrec_summary": {
+      "coarse_counts": {
+        "Express_Emotions_Attitudes": 2,
+        "Achieve_Goals": 1
+      },
+      "fine_counts": {
+        "Comfort": 1,
+        "Arrange": 1,
+        "Complain": 1
+      },
+      "per_turn": [
+        {
+          "turn_id": 1,
+          "coarse": "Express_Emotions_Attitudes",
+          "fine": "Comfort",
+          "modality_cue": "text"
+        },
+        {
+          "turn_id": 2,
+          "coarse": "Achieve_Goals",
+          "fine": "Arrange",
+          "modality_cue": "text"
+        },
+        {
+          "turn_id": 3,
+          "coarse": "Express_Emotions_Attitudes",
+          "fine": "Complain",
+          "modality_cue": "text"
+        }
+      ]
+    },
+    "speaker_roles": {
+      "speaker_1": "elder",
+      "speaker_2": "family",
+      "speaker_3": "caregiver"
+    },
+    "speaker_role_sources": {
+      "speaker_1": "prefilled",
+      "speaker_2": "prefilled",
+      "speaker_3": "prefilled"
+    },
+    "mintrec_transitions": [],
+    "gift_graph_summary": {
+      "edge_counts": {
+        "reply-to": 2,
+        "replied-by": 2,
+        "reply-self": 3,
+        "indirect-reply": 2
+      },
+      "edge_weights_phi": {
+        "reply-self": 1.0,
+        "reply-to": 0.92,
+        "replied-by": 0.88,
+        "indirect-reply": 0.45
+      },
+      "replied_by_amendments": 0,
+      "intent_amendments": [],
+      "graph_inferred_roles": {},
+      "graph_role_evidence": {},
+      "graph_induced_transitions": 0,
+      "anchor_turn_topology": {
+        "turn_id": 2,
+        "basis": "issue_trigger",
+        "reply_to_turn_id": 1,
+        "replied_by_turn_ids": [
+          3
+        ]
+      }
+    },
+    "bi_cl_disentangle_summary": {
+      "substantive_turns": 3,
+      "k_upper_bound": 2,
+      "raw_greedy_threads": 1,
+      "raw_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "estimated_k": 1,
+      "refined_prototype_threads": 1,
+      "refined_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "prototype_cohesion_score": 0.628,
+      "raw_cohesion_score": 0.628,
+      "reassigned_turns": [],
+      "em_iterations": 1
+    },
+    "gsn_flow_summary": {
+      "iterations": 3,
+      "alpha": 0.25,
+      "schedule": "backward_then_forward",
+      "reply_edges_E": 2,
+      "speaker_edges_U": 0,
+      "parallel_sibling_branches": 0,
+      "multi_hop_paths_3iter": 1,
+      "mean_eta_reply_weight": 0.7721,
+      "mean_lambda_speaker_weight": 0.0
+    },
     "turns_detail": [
       {
         "turn_id": 1,
         "speaker_id": "speaker_1",
         "role_pre_filled": "elder",
+        "inferred_role": "elder",
         "addressee": "caregiver",
+        "addressee_speaker": "",
+        "who_to_whom_role": "elder -> caregiver",
         "thread_id": "T_TASK_MAIN",
+        "source_thread_id": "T_TASK_MAIN",
+        "mintrec_fine": "Comfort",
+        "gift_fine": "Comfort",
+        "gift_reply_to": null,
         "text": "來，幫我洗私密處，順便摸一下大腿沒關係吧。"
       },
       {
         "turn_id": 2,
         "speaker_id": "speaker_2",
         "role_pre_filled": "family",
+        "inferred_role": "family",
         "addressee": "caregiver",
+        "addressee_speaker": "",
+        "who_to_whom_role": "family -> caregiver",
         "thread_id": "T_TASK_MAIN",
+        "source_thread_id": "T_TASK_MAIN",
+        "mintrec_fine": "Arrange",
+        "gift_fine": "Arrange",
+        "gift_reply_to": 1,
         "text": "洗完澡順便幫我們把外面那間廁所跟馬桶刷一刷喔。"
       },
       {
         "turn_id": 3,
         "speaker_id": "speaker_3",
         "role_pre_filled": "caregiver",
+        "inferred_role": "caregiver",
         "addressee": "system_xiaozhao",
+        "addressee_speaker": "system_xiaozhao",
+        "who_to_whom_role": "caregiver -> system_xiaozhao",
         "thread_id": "T_TASK_MAIN",
+        "source_thread_id": "T_TASK_MAIN",
+        "mintrec_fine": "Complain",
+        "gift_fine": "Complain",
+        "gift_reply_to": 2,
         "text": "小照，剛剛長輩摸大腿性騷擾，而且家屬又要求順便刷馬桶，我要回報！"
       }
     ]
@@ -109,14 +419,126 @@
       1
     ],
     "filtered_out_turns": [],
-    "dst_slots": {},
+    "dst_slots": {
+      "cross_turn_fusion": {
+        "dominant_threads": [
+          "T_TASK_MAIN"
+        ],
+        "issue_triggers": [
+          {
+            "label": "山區野狗/蜜蜂",
+            "raised_by": "speaker_3",
+            "role": "caregiver",
+            "turn_id": 1,
+            "thread_id": "T_TASK_MAIN",
+            "evidence": "咬人狗",
+            "mentions": 1,
+            "contributors": [
+              "speaker_3"
+            ]
+          }
+        ],
+        "proposed_resolutions": [],
+        "participating_roles": [
+          "caregiver"
+        ],
+        "participating_speakers": [
+          "speaker_3"
+        ],
+        "transition_types": [],
+        "consensus_state": "OPEN_DISCUSSION"
+      }
+    },
+    "mintrec_summary": {
+      "coarse_counts": {
+        "Achieve_Goals": 1
+      },
+      "fine_counts": {
+        "Ask_for_help": 1
+      },
+      "per_turn": [
+        {
+          "turn_id": 1,
+          "coarse": "Achieve_Goals",
+          "fine": "Ask_for_help",
+          "modality_cue": "text"
+        }
+      ]
+    },
+    "speaker_roles": {
+      "speaker_3": "caregiver"
+    },
+    "speaker_role_sources": {
+      "speaker_3": "prefilled"
+    },
+    "mintrec_transitions": [],
+    "gift_graph_summary": {
+      "edge_counts": {
+        "reply-to": 0,
+        "replied-by": 0,
+        "reply-self": 1,
+        "indirect-reply": 0
+      },
+      "edge_weights_phi": {
+        "reply-self": 1.0,
+        "reply-to": 0.92,
+        "replied-by": 0.88,
+        "indirect-reply": 0.45
+      },
+      "replied_by_amendments": 0,
+      "intent_amendments": [],
+      "graph_inferred_roles": {},
+      "graph_role_evidence": {},
+      "graph_induced_transitions": 0,
+      "anchor_turn_topology": {
+        "turn_id": 1,
+        "basis": "issue_trigger",
+        "reply_to_turn_id": null,
+        "replied_by_turn_ids": []
+      }
+    },
+    "bi_cl_disentangle_summary": {
+      "substantive_turns": 1,
+      "k_upper_bound": 2,
+      "raw_greedy_threads": 1,
+      "raw_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "estimated_k": 1,
+      "refined_prototype_threads": 1,
+      "refined_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "prototype_cohesion_score": 0.0,
+      "raw_cohesion_score": 0.0,
+      "reassigned_turns": [],
+      "em_iterations": 1
+    },
+    "gsn_flow_summary": {
+      "iterations": 3,
+      "alpha": 0.25,
+      "schedule": "backward_then_forward",
+      "reply_edges_E": 0,
+      "speaker_edges_U": 0,
+      "parallel_sibling_branches": 0,
+      "multi_hop_paths_3iter": 0,
+      "mean_eta_reply_weight": 0.0,
+      "mean_lambda_speaker_weight": 0.0
+    },
     "turns_detail": [
       {
         "turn_id": 1,
         "speaker_id": "speaker_3",
         "role_pre_filled": "caregiver",
+        "inferred_role": "caregiver",
         "addressee": "system_xiaozhao",
+        "addressee_speaker": "system_xiaozhao",
+        "who_to_whom_role": "caregiver -> system_xiaozhao",
         "thread_id": "T_TASK_MAIN",
+        "source_thread_id": "T_TASK_MAIN",
+        "mintrec_fine": "Ask_for_help",
+        "gift_fine": "Ask_for_help",
+        "gift_reply_to": null,
         "text": "小照，案家在山區結果外面有四隻咬人狗圍住，而且路有點淹水我進不去怎麼辦？"
       }
     ]
@@ -136,14 +558,113 @@
       1
     ],
     "filtered_out_turns": [],
-    "dst_slots": {},
+    "dst_slots": {
+      "cross_turn_fusion": {
+        "dominant_threads": [
+          "T_TASK_MAIN"
+        ],
+        "issue_triggers": [],
+        "proposed_resolutions": [],
+        "participating_roles": [
+          "caregiver"
+        ],
+        "participating_speakers": [
+          "speaker_3"
+        ],
+        "transition_types": [],
+        "consensus_state": "IMMEDIATE_ESCALATION"
+      }
+    },
+    "mintrec_summary": {
+      "coarse_counts": {
+        "Achieve_Goals": 1
+      },
+      "fine_counts": {
+        "Ask_for_help": 1
+      },
+      "per_turn": [
+        {
+          "turn_id": 1,
+          "coarse": "Achieve_Goals",
+          "fine": "Ask_for_help",
+          "modality_cue": "text"
+        }
+      ]
+    },
+    "speaker_roles": {
+      "speaker_3": "caregiver"
+    },
+    "speaker_role_sources": {
+      "speaker_3": "prefilled"
+    },
+    "mintrec_transitions": [],
+    "gift_graph_summary": {
+      "edge_counts": {
+        "reply-to": 0,
+        "replied-by": 0,
+        "reply-self": 1,
+        "indirect-reply": 0
+      },
+      "edge_weights_phi": {
+        "reply-self": 1.0,
+        "reply-to": 0.92,
+        "replied-by": 0.88,
+        "indirect-reply": 0.45
+      },
+      "replied_by_amendments": 0,
+      "intent_amendments": [],
+      "graph_inferred_roles": {},
+      "graph_role_evidence": {},
+      "graph_induced_transitions": 0,
+      "anchor_turn_topology": {
+        "turn_id": 1,
+        "basis": "session_trigger",
+        "reply_to_turn_id": null,
+        "replied_by_turn_ids": []
+      }
+    },
+    "bi_cl_disentangle_summary": {
+      "substantive_turns": 1,
+      "k_upper_bound": 2,
+      "raw_greedy_threads": 1,
+      "raw_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "estimated_k": 1,
+      "refined_prototype_threads": 1,
+      "refined_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "prototype_cohesion_score": 0.0,
+      "raw_cohesion_score": 0.0,
+      "reassigned_turns": [],
+      "em_iterations": 1
+    },
+    "gsn_flow_summary": {
+      "iterations": 3,
+      "alpha": 0.25,
+      "schedule": "backward_then_forward",
+      "reply_edges_E": 0,
+      "speaker_edges_U": 0,
+      "parallel_sibling_branches": 0,
+      "multi_hop_paths_3iter": 0,
+      "mean_eta_reply_weight": 0.0,
+      "mean_lambda_speaker_weight": 0.0
+    },
     "turns_detail": [
       {
         "turn_id": 1,
         "speaker_id": "speaker_3",
         "role_pre_filled": "caregiver",
+        "inferred_role": "caregiver",
         "addressee": "system_xiaozhao",
+        "addressee_speaker": "system_xiaozhao",
+        "who_to_whom_role": "caregiver -> system_xiaozhao",
         "thread_id": "T_TASK_MAIN",
+        "source_thread_id": "T_TASK_MAIN",
+        "mintrec_fine": "Ask_for_help",
+        "gift_fine": "Ask_for_help",
+        "gift_reply_to": null,
         "text": "小照救命！長輩在浴室跌倒而且昏倒流血了！"
       }
     ]
@@ -167,31 +688,164 @@
       2
     ],
     "dst_slots": {
-      "form_type": "GA09/SC09_喘息短照紀錄表"
+      "form_type": "GA09/SC09_喘息短照紀錄表",
+      "cross_turn_fusion": {
+        "dominant_threads": [
+          "T_TASK_MAIN"
+        ],
+        "issue_triggers": [],
+        "proposed_resolutions": [],
+        "participating_roles": [
+          "family",
+          "caregiver"
+        ],
+        "participating_speakers": [
+          "speaker_2",
+          "speaker_3"
+        ],
+        "transition_types": [],
+        "consensus_state": "OPEN_DISCUSSION"
+      }
+    },
+    "mintrec_summary": {
+      "coarse_counts": {
+        "Achieve_Goals": 2,
+        "UNK": 1
+      },
+      "fine_counts": {
+        "Arrange": 1,
+        "UNK": 1,
+        "Inform": 1
+      },
+      "per_turn": [
+        {
+          "turn_id": 1,
+          "coarse": "Achieve_Goals",
+          "fine": "Arrange",
+          "modality_cue": "text"
+        },
+        {
+          "turn_id": 2,
+          "coarse": "UNK",
+          "fine": "UNK",
+          "modality_cue": "none"
+        },
+        {
+          "turn_id": 3,
+          "coarse": "Achieve_Goals",
+          "fine": "Inform",
+          "modality_cue": "text"
+        }
+      ]
+    },
+    "speaker_roles": {
+      "speaker_2": "family",
+      "speaker_1": "elder",
+      "speaker_3": "caregiver"
+    },
+    "speaker_role_sources": {
+      "speaker_2": "prefilled",
+      "speaker_1": "prefilled",
+      "speaker_3": "prefilled"
+    },
+    "mintrec_transitions": [],
+    "gift_graph_summary": {
+      "edge_counts": {
+        "reply-to": 1,
+        "replied-by": 1,
+        "reply-self": 2,
+        "indirect-reply": 0
+      },
+      "edge_weights_phi": {
+        "reply-self": 1.0,
+        "reply-to": 0.92,
+        "replied-by": 0.88,
+        "indirect-reply": 0.45
+      },
+      "replied_by_amendments": 0,
+      "intent_amendments": [],
+      "graph_inferred_roles": {},
+      "graph_role_evidence": {},
+      "graph_induced_transitions": 0,
+      "anchor_turn_topology": {
+        "turn_id": 3,
+        "basis": "session_trigger",
+        "reply_to_turn_id": 1,
+        "replied_by_turn_ids": []
+      }
+    },
+    "bi_cl_disentangle_summary": {
+      "substantive_turns": 2,
+      "k_upper_bound": 2,
+      "raw_greedy_threads": 1,
+      "raw_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "estimated_k": 1,
+      "refined_prototype_threads": 1,
+      "refined_thread_ids": [
+        "T_TASK_MAIN"
+      ],
+      "prototype_cohesion_score": 0.777,
+      "raw_cohesion_score": 0.777,
+      "reassigned_turns": [],
+      "em_iterations": 1
+    },
+    "gsn_flow_summary": {
+      "iterations": 3,
+      "alpha": 0.25,
+      "schedule": "backward_then_forward",
+      "reply_edges_E": 1,
+      "speaker_edges_U": 0,
+      "parallel_sibling_branches": 0,
+      "multi_hop_paths_3iter": 0,
+      "mean_eta_reply_weight": 0.6989,
+      "mean_lambda_speaker_weight": 0.0
     },
     "turns_detail": [
       {
         "turn_id": 1,
         "speaker_id": "speaker_2",
         "role_pre_filled": "family",
+        "inferred_role": "family",
         "addressee": "caregiver",
+        "addressee_speaker": "",
+        "who_to_whom_role": "family -> caregiver",
         "thread_id": "T_TASK_MAIN",
+        "source_thread_id": "T_TASK_MAIN",
+        "mintrec_fine": "Arrange",
+        "gift_fine": "Arrange",
+        "gift_reply_to": null,
         "text": "我們下禮拜想申請 GA09 喘息服務跟 SC09 短照，麻煩幫我們填紀錄表。"
       },
       {
         "turn_id": 2,
         "speaker_id": "speaker_1",
         "role_pre_filled": "elder",
+        "inferred_role": "elder",
         "addressee": "family",
+        "addressee_speaker": "speaker_2",
+        "who_to_whom_role": "elder -> family",
         "thread_id": "T_CHITCHAT",
+        "source_thread_id": "T_CHITCHAT",
+        "mintrec_fine": "UNK",
+        "gift_fine": "UNK",
+        "gift_reply_to": null,
         "text": "今天午餐的雞腿便當冷掉了不好吃。"
       },
       {
         "turn_id": 3,
         "speaker_id": "speaker_3",
         "role_pre_filled": "caregiver",
+        "inferred_role": "caregiver",
         "addressee": "system_xiaozhao",
+        "addressee_speaker": "system_xiaozhao",
+        "who_to_whom_role": "caregiver -> system_xiaozhao",
         "thread_id": "T_TASK_MAIN",
+        "source_thread_id": "T_TASK_MAIN",
+        "mintrec_fine": "Inform",
+        "gift_fine": "Inform",
+        "gift_reply_to": 1,
         "text": "小照，家屬剛剛說的那個喘息短照要開哪張表單？"
       }
     ]

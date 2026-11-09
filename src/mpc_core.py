@@ -4,7 +4,7 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from pathlib import Path
 
 try:
@@ -359,6 +359,8 @@ ISSUE_TRIGGER_CATALOG: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
     ("照服員回報與緊急事件處理", ("緊急事件", "第一時間非常緊急", "第一時間")),
     ("聲紋收集困難/家屬多變", ("聲紋可能會沒有", "家屬都是會變", "家屬很多", "收集生活這個個人覺得很困難")),
     ("小照回答錯誤/不完整", ("回答錯誤", "答案不正確", "回答不完整", "沒有依據", "找不到資料", "沒有回答")),
+    # iv2 49:15: "參數的問題…不合理…資料搜尋" + "不要讓這麼多的細節可以發散出來" (before the meeting 小結)
+    ("搜尋參數不合理/會議細節發散", ("參數的問題", "參數不合理", "細節可以發散", "細節發散")),
 )
 RESOLUTION_CATALOG: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
     ("對講機功能直連居督手機", ("對講機", "緊急對講", "直連", "居督的手機", "督導的手機")),
@@ -401,8 +403,13 @@ def _catalog_hits(turns: List[UtteranceTurn], catalog, roles: Dict[str, str], wh
 def aggregate_cross_turn_slots(turns: List[UtteranceTurn], speaker_roles: Dict[str, str],
                                thread_of: Optional[Dict[int, str]] = None,
                                transitions: Optional[List[Dict]] = None,
-                               safety_level: str = "NORMAL") -> Dict[str, Any]:
-    """Fuse multi-speaker contributions in the dominant substantive thread(s) into one DST slot."""
+                               safety_level: str = "NORMAL",
+                               gsn: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Fuse multi-speaker contributions in the dominant substantive thread(s) into one DST slot.
+
+    With `gsn` (gsn_propagate_session output) the fusion reads the 3-iter BIF states: issues raised in
+    non-dominant threads that reach a core turn via E/U flow (weight >= GSN_IMPORT_MIN) are imported, and every
+    resolution lists the issues whose features reached its turn (`gsn_linked_issues`)."""
     thread_of = thread_of or {t.turn_id: t.thread_id for t in turns}
     transitions = transitions or []
     chars: Dict[str, int] = {}
@@ -415,8 +422,14 @@ def aggregate_cross_turn_slots(turns: List[UtteranceTurn], speaker_roles: Dict[s
                       key=lambda tid: -chars[tid])
     core = [t for t in turns if thread_of.get(t.turn_id, t.thread_id) in dominant and not is_agreement_only(t.text)]
     issues = _catalog_hits(core, ISSUE_TRIGGER_CATALOG, speaker_roles, "raised_by", thread_of)
+    if gsn:
+        issues = sorted(issues + gsn_imported_issues(gsn, core, issues, turns, speaker_roles, thread_of),
+                        key=lambda d: d["turn_id"])
     first_issue = issues[0]["turn_id"] if issues else 0   # resolutions must follow the first raised issue
     resolutions = _catalog_hits(core, RESOLUTION_CATALOG, speaker_roles, "proposed_by", thread_of, first_issue)
+    if gsn:
+        for r in resolutions:
+            r["gsn_linked_issues"] = gsn_linked_features(gsn, r["turn_id"], "issue:")
     roles_seen: List[str] = []
     for t in core:
         r = speaker_roles.get(t.speaker_id, "unknown")
@@ -621,6 +634,158 @@ def gift_infer_roles(turns: List[UtteranceTurn], graph: Dict[str, Any], roles: D
                               "replied_by_edges": n_by,
                               "partners": {p: roles[p] for p in sorted(partners)},
                               "topic_scores": {r: round(s, 2) for r, s in sorted(scores.items())}})
+    return out
+
+
+# ------------- Upgrade F: GSN utterance-level graph-structured encoder (Hu et al., IJCAI 2019, Algorithm 1)
+GSN_ALPHA = 0.25          # SQH floor (GSN Eq. 4)
+GSN_ITERATIONS = 3        # N backward + N forward BIF iterations
+GSN_IMPORT_MIN = 0.5      # min propagated weight for an off-thread issue to be imported into the fusion slot
+GSNFeature = Tuple[float, int, int]   # (weight in [0, 1], origin turn id, hops from origin)
+
+
+def gsn_sqh(norm: float, alpha: float = GSN_ALPHA) -> float:
+    """GSN Eq. 4 squashing coefficient: (alpha + ||d||) / (1 + ||d||), in [alpha, 1) for ||d|| >= 0."""
+    return (alpha + norm) / (1.0 + norm)
+
+
+def gsn_initial_state(turn: UtteranceTurn, fine: str = "",
+                      domain_fn: Optional[Callable[[str], List[str]]] = None) -> Dict[str, float]:
+    """s_i^0: sparse binary features for domain intents, MIntRec fine intent, issue/resolution slots, live risk."""
+    txt = _norm(turn.text)
+    s: Dict[str, float] = {f"intent:{d}": 1.0 for d in (domain_fn(turn.text) if domain_fn else [])}
+    if fine:
+        s[f"mintrec:{fine}"] = 1.0
+    for prefix, catalog in (("issue:", ISSUE_TRIGGER_CATALOG), ("res:", RESOLUTION_CATALOG)):
+        s.update({prefix + label: 1.0 for label, cues in catalog if any(c in txt for c in cues)})
+    if crisis_is_live(turn.text):
+        s["risk:live_crisis"] = 1.0
+    return s
+
+
+def gsn_propagate_session(turns: List[UtteranceTurn], graph: Dict[str, Any],
+                          initial: Optional[Dict[int, Dict[str, float]]] = None,
+                          iterations: int = GSN_ITERATIONS, alpha: float = GSN_ALPHA) -> Dict[str, Any]:
+    """GSN UG-E (Algorithm 1) over the GIFT graph's substantive nodes.
+
+    E: e_{i,j}=1 (i<j) when turn j replies to turn i (GIFT reply-to). U: u_{i,j}=1 (i<j) for chronologically
+    consecutive turns of the same speaker (the O(N) chain form of GSN's speaker matrix). Each update aggregates
+    the mean neighbour state dE_i / dU_i, gates it with eta_i = SQH(||dE_i||) / lambda_i = SQH(||dU_i||) and
+    max-fuses it into s_i (a training-free stand-in for GSN's GRU fusion, so weights stay in [0, 1] and decay
+    per hop). N backward iterations (E^T, U^T: children -> parents) are followed by N forward ones (E, U:
+    parents -> children), so a child's content reaches its parallel siblings and descendants up to N hops."""
+    ids = list(graph["node_ids"])
+    idset = set(ids)
+    speaker_of = graph["speaker_of"]
+    parent = {c: p for c, p in graph["reply_to"].items() if c in idset and p in idset}
+    children: Dict[int, List[int]] = {i: [] for i in ids}
+    for c, p in parent.items():
+        children[p].append(c)
+    prev_same: Dict[int, int] = {}
+    next_same: Dict[int, int] = {}
+    last_of: Dict[str, int] = {}
+    for i in ids:                                  # node_ids are chronological
+        sp = speaker_of[i]
+        if sp in last_of:
+            prev_same[i], next_same[last_of[sp]] = last_of[sp], i
+        last_of[sp] = i
+    by_id = {t.turn_id: t for t in turns}
+    initial = initial if initial is not None else {i: gsn_initial_state(by_id[i]) for i in ids}
+    states: Dict[int, Dict[str, GSNFeature]] = {i: {f: (w, i, 0) for f, w in initial.get(i, {}).items()}
+                                                for i in ids}
+
+    def delta(nbrs: List[int], snap: Dict[int, Dict[str, GSNFeature]]) -> Tuple[Dict[str, GSNFeature], float]:
+        acc: Dict[str, List] = {}
+        for n in nbrs:
+            for f, (w, org, hop) in snap[n].items():
+                a = acc.setdefault(f, [0.0, w, org, hop])
+                a[0] += w
+                if w > a[1]:
+                    a[1:] = [w, org, hop]
+        d = {f: (a[0] / len(nbrs), a[2], a[3] + 1) for f, a in acc.items()}
+        return d, sum(v[0] ** 2 for v in d.values()) ** 0.5
+
+    etas: List[float] = []
+    lambdas: List[float] = []
+    for direction in ("backward",) * iterations + ("forward",) * iterations:
+        snap = {i: dict(s) for i, s in states.items()}
+        for i in ids:
+            if direction == "backward":           # GSN Eq. 12: E^T / U^T
+                e_nb, u_nb = children[i], ([next_same[i]] if i in next_same else [])
+            else:                                 # GSN Eq. 9-10: E / U
+                e_nb, u_nb = ([parent[i]] if i in parent else []), ([prev_same[i]] if i in prev_same else [])
+            for nbrs, gates in ((e_nb, etas), (u_nb, lambdas)):
+                if not nbrs:
+                    continue
+                d, norm = delta(nbrs, snap)
+                gate = gsn_sqh(norm, alpha)
+                gates.append(gate)
+                for f, (w, org, hop) in d.items():
+                    if org != i and gate * w > states[i].get(f, (0.0,))[0]:
+                        states[i][f] = (round(gate * w, 4), org, hop)
+
+    siblings = {p: sorted(cs) for p, cs in children.items() if len(cs) >= 2}
+    fwd = {i: children[i] + ([next_same[i]] if i in next_same else []) for i in ids}
+    multi_hop: List[Tuple[int, int, int]] = []
+    for src in ids:                                # shortest-path BFS in E u U, depth <= iterations
+        dist = {src: 0}
+        frontier = [src]
+        for depth in range(1, iterations + 1):
+            frontier = [n for f in frontier for n in fwd[f] if n not in dist]
+            for n in frontier:
+                dist[n] = depth
+            if depth >= 2:
+                multi_hop.extend((src, n, depth) for n in sorted(set(frontier)))
+    mean = lambda xs: round(sum(xs) / len(xs), 4) if xs else 0.0   # noqa: E731
+    return {
+        "node_ids": ids,
+        "E": sorted((p, c) for c, p in parent.items()),
+        "U": sorted((p, c) for c, p in prev_same.items()),
+        "parallel_siblings": siblings,
+        "multi_hop_paths": multi_hop,
+        "states": states,
+        "summary": {
+            "iterations": iterations, "alpha": alpha, "schedule": "backward_then_forward",
+            "reply_edges_E": len(parent), "speaker_edges_U": len(prev_same),
+            "parallel_sibling_branches": len(siblings),
+            "multi_hop_paths_3iter": len(multi_hop),
+            "mean_eta_reply_weight": mean(etas), "mean_lambda_speaker_weight": mean(lambdas),
+        },
+    }
+
+
+def gsn_linked_features(gsn: Dict[str, Any], turn_id: int, prefix: str) -> List[Dict[str, Any]]:
+    """Features with `prefix` in turn_id's propagated state (own or flowed in), strongest first."""
+    st = gsn["states"].get(turn_id, {})
+    return sorted(({"label": f[len(prefix):], "origin_turn": org, "weight": w, "hops": hop}
+                   for f, (w, org, hop) in st.items() if f.startswith(prefix)),
+                  key=lambda d: (-d["weight"], d["origin_turn"]))
+
+
+def gsn_imported_issues(gsn: Dict[str, Any], core: List[UtteranceTurn], have: List[Dict],
+                        turns: List[UtteranceTurn], roles: Dict[str, str],
+                        thread_of: Dict[int, str]) -> List[Dict]:
+    """Issues raised outside the dominant thread(s) whose features reached a core turn via E/U flow."""
+    core_ids = {t.turn_id for t in core}
+    known = {d["label"] for d in have}
+    by_id = {t.turn_id: t for t in turns}
+    best: Dict[str, Tuple[float, int, int, int]] = {}
+    for tid in core_ids:
+        for f, (w, org, hop) in gsn["states"].get(tid, {}).items():
+            lab = f[len("issue:"):]
+            if (f.startswith("issue:") and org not in core_ids and w >= GSN_IMPORT_MIN and lab not in known
+                    and w > best.get(lab, (0.0,))[0]):
+                best[lab] = (w, org, hop, tid)
+    cues = dict(ISSUE_TRIGGER_CATALOG)
+    out = []
+    for lab, (w, org, hop, reached) in best.items():
+        t = by_id[org]
+        sp = t.speaker_id
+        out.append({"label": lab, "raised_by": sp, "role": roles.get(sp, "unknown"), "turn_id": org,
+                    "thread_id": thread_of.get(org, t.thread_id),
+                    "evidence": next((c for c in cues[lab] if c in _norm(t.text)), ""), "mentions": 1,
+                    "contributors": [sp], "via": "gsn_flow", "gsn_weight": w, "gsn_hops": hop,
+                    "reached_turn": reached})
     return out
 
 
@@ -1083,9 +1248,14 @@ class XiaoZhaoMPCEngine:
         transitions = detect_mintrec_transitions(session.turns, mintrec_labels, thread_of, speaker_roles)
         transitions = gift_boost_transitions(session.turns, mintrec_labels, gift, amendments, transitions,
                                              thread_of, speaker_roles)
-        session.dst_slots["cross_turn_fusion"] = aggregate_cross_turn_slots(
-            session.turns, speaker_roles, thread_of, transitions, safety_level)
         fine_of = {t.turn_id: lb["fine"] for t, lb in zip(session.turns, mintrec_labels)}
+        # Upgrade F: GSN 3-iter backward-then-forward flow over E (GIFT reply-to) and U (same speaker)
+        by_tid = {t.turn_id: t for t in session.turns}
+        gsn = gsn_propagate_session(session.turns, gift, {
+            i: gsn_initial_state(by_tid[i], amendments.get(i, {}).get("gift_fine", fine_of[i]),
+                                 self.detect_domain_intents) for i in gift["node_ids"]})
+        session.dst_slots["cross_turn_fusion"] = aggregate_cross_turn_slots(
+            session.turns, speaker_roles, thread_of, transitions, safety_level, gsn)
         fusion = session.dst_slots["cross_turn_fusion"]
         anchor = (fusion["issue_triggers"][0]["turn_id"] if fusion["issue_triggers"] else
                   next((tid for tid in reversed(gift["node_ids"])), last_turn.turn_id))
@@ -1124,6 +1294,7 @@ class XiaoZhaoMPCEngine:
             "mintrec_transitions": transitions,
             "gift_graph_summary": gift_summary,
             "bi_cl_disentangle_summary": bi_cl_summary,
+            "gsn_flow_summary": gsn["summary"],
             "turns_detail": [
                 {
                     "turn_id": t.turn_id,
@@ -1423,6 +1594,63 @@ def build_5_benchmark_scenarios() -> List[DialogueSessionState]:
         ),
     ]
 
+def _gsn_unit_tests() -> None:
+    """v7.6 unit tests: GSN SQH bounds, sibling fusion via BIF, 3-iter multi-hop reach, U speaker chain."""
+    U = UtteranceTurn
+    # --- SQH (Eq. 4) in [alpha, 1), monotone in ||d||
+    sq = [gsn_sqh(x) for x in (0.0, 0.1, 1.0, 3.0, 50.0, 1e6)]
+    assert sq[0] == GSN_ALPHA and all(GSN_ALPHA <= v < 1.0 for v in sq) and sq == sorted(sq), sq
+    # --- parallel siblings (GSN Fig 1 / 4a): 2, 3, 4 all reply to 1; 3's content reaches 2 and 4 only via BIF
+    sib = [U(1, 0, "speaker_1", "unknown", "今天的個案狀況大家說一下"),
+           U(2, 3, "speaker_2", "unknown", "我這邊阿嬤很穩定", addressee="speaker_1"),
+           U(3, 6, "speaker_3", "unknown", "我那邊阿伯一直拉我", addressee="speaker_1"),
+           U(4, 9, "speaker_4", "unknown", "我這週要排班表", addressee="speaker_1")]
+    g = build_gift_graph(sib)
+    r = gsn_propagate_session(sib, g, {3: {"issue:X": 1.0}})
+    assert r["E"] == [(1, 2), (1, 3), (1, 4)] and r["parallel_siblings"] == {1: [2, 3, 4]}, r["E"]
+    assert r["summary"]["parallel_sibling_branches"] == 1 and r["summary"]["speaker_edges_U"] == 0
+    w1, o1, h1 = r["states"][1]["issue:X"]
+    w2, o2, h2 = r["states"][2]["issue:X"]
+    assert (o1, h1, o2, h2) == (3, 1, 3, 2) and r["states"][4]["issue:X"][1:] == (3, 2), r["states"]
+    assert 0 < w2 < w1 < 1.0, (w1, w2)            # SQH gates decay per hop; mean over 3 children dilutes
+    # --- 3-iter multi-hop: 1 -> 2 -> 3 -> 4 reached, the 4-hop node 5 is not
+    chain = [U(i, 2.0 * i, f"speaker_{i}", "unknown", f"第{i}句不同的內容延伸討論") for i in range(1, 6)]
+    r = gsn_propagate_session(chain, build_gift_graph(chain), {1: {"issue:Y": 1.0}})
+    assert r["E"] == [(1, 2), (2, 3), (3, 4), (4, 5)], r["E"]
+    assert [r["states"][i]["issue:Y"][2] for i in (2, 3, 4)] == [1, 2, 3] and "issue:Y" not in r["states"][5]
+    assert r["summary"]["multi_hop_paths_3iter"] == 5 and (1, 4, 3) in r["multi_hop_paths"], r["multi_hop_paths"]
+    # --- U speaker chain (GSN 3.2.3 / Fig 4b): A-B-A-B-A, speaker_1's stance flows 1 -> 3 -> 5 on U
+    ab = [U(i, 2.0 * i, "speaker_1" if i % 2 else "speaker_2", "unknown", f"第{i}輪的意見") for i in range(1, 6)]
+    r = gsn_propagate_session(ab, build_gift_graph(ab), {1: {"stance:Z": 1.0}})
+    assert r["U"] == [(1, 3), (2, 4), (3, 5)] and r["summary"]["speaker_edges_U"] == 3, r["U"]
+    w3, w5 = r["states"][3]["stance:Z"][0], r["states"][5]["stance:Z"][0]
+    assert r["states"][5]["stance:Z"][1:] == (1, 2) and 0 < w5 < w3 < 1.0, r["states"][5]
+    sm = r["summary"]
+    assert (sm["iterations"], sm["alpha"]) == (3, 0.25)
+    assert GSN_ALPHA <= sm["mean_lambda_speaker_weight"] < 1 and GSN_ALPHA <= sm["mean_eta_reply_weight"] < 1, sm
+    # --- fusion: an off-thread issue reaching the dominant thread via U is imported and linked (iv2 49:15 shape)
+    ft = [U(1, 0, "speaker_1", "unknown", "那是因為參數的問題他在做資料搜尋之後不合理", thread_id="T_SIDE"),
+          U(2, 4, "speaker_2", "unknown", "我們今天大概就大家先做個小結", thread_id="T_MAIN"),
+          U(3, 8, "speaker_1", "unknown", "照服員端要有緊急鈕的功能", thread_id="T_MAIN"),
+          U(4, 12, "speaker_2", "unknown", "我們需要有多元問題的選項然後補充服務項目紀錄", thread_id="T_MAIN")]
+    th = {t.turn_id: t.thread_id for t in ft}
+    gr = build_gift_graph(ft, th)
+    gs = gsn_propagate_session(ft, gr)
+    roles = {"speaker_1": ROLE_RESEARCHER, "speaker_2": ROLE_SUPERVISOR}
+    plain = aggregate_cross_turn_slots(ft, roles, th)
+    fused = aggregate_cross_turn_slots(ft, roles, th, gsn=gs)
+    assert plain["dominant_threads"] == ["T_MAIN"] and plain["issue_triggers"] == [], plain
+    iss = fused["issue_triggers"]
+    assert [(d["label"], d["turn_id"], d["via"]) for d in iss] == [("搜尋參數不合理/會議細節發散", 1, "gsn_flow")], iss
+    assert {d["label"] for d in fused["proposed_resolutions"]} == {"照服員端緊急鈕+控制APP", "放進多元項目累積經驗"}
+    assert all(any(li["origin_turn"] == 1 for li in d["gsn_linked_issues"]) for d in fused["proposed_resolutions"])
+    s = DialogueSessionState("S_GSN", "C")
+    s.turns = [U(t.turn_id, t.timestamp, t.speaker_id, "unknown", t.text, thread_id=t.thread_id) for t in ft]
+    out = XiaoZhaoMPCEngine().analyze_session(s)["gsn_flow_summary"]
+    assert set(out) >= {"iterations", "alpha", "reply_edges_E", "speaker_edges_U", "parallel_sibling_branches",
+                        "multi_hop_paths_3iter", "mean_eta_reply_weight", "mean_lambda_speaker_weight"}, out
+
+
 def _gift_bicl_unit_tests() -> None:
     """v7.5 unit tests: Bi-CL thread consolidation + GIFT 4-edge topology / replied-by amendment / roles."""
     U = UtteranceTurn
@@ -1695,6 +1923,7 @@ if __name__ == "__main__":
     assert [x["type"] for x in pf4.transitions] == ["REQUEST_TO_COMPLIANCE_OR_HESITATION"], pf4.transitions
 
     _gift_bicl_unit_tests()
+    _gsn_unit_tests()
     if "--quiet-test" in sys.argv:
         print(f"MPC_CORE_OK (env={'PI' if ON_PI else 'MAC_MOCK'}, scenarios={len(results)})")
         sys.exit(0)

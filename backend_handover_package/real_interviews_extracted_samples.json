@@ -381,6 +381,17 @@
               ],
               "em_iterations": 1
             },
+            "gsn_flow_summary": {
+              "iterations": 3,
+              "alpha": 0.25,
+              "schedule": "backward_then_forward",
+              "reply_edges_E": 6,
+              "speaker_edges_U": 4,
+              "parallel_sibling_branches": 1,
+              "multi_hop_paths_3iter": 10,
+              "mean_eta_reply_weight": 0.7568,
+              "mean_lambda_speaker_weight": 0.7545
+            },
             "cross_turn_fusion": {
               "dominant_threads": [
                 "T_TOPIC_1"
@@ -422,6 +433,20 @@
                   "mentions": 1,
                   "contributors": [
                     "speaker_2"
+                  ],
+                  "gsn_linked_issues": [
+                    {
+                      "label": "居服員緊張/在外騎車無法即時解決",
+                      "origin_turn": 7,
+                      "weight": 0.7255,
+                      "hops": 1
+                    },
+                    {
+                      "label": "培訓未涵蓋的現場狀況",
+                      "origin_turn": 3,
+                      "weight": 0.6139,
+                      "hops": 2
+                    }
                   ]
                 },
                 {
@@ -434,6 +459,20 @@
                   "mentions": 1,
                   "contributors": [
                     "speaker_1"
+                  ],
+                  "gsn_linked_issues": [
+                    {
+                      "label": "居服員緊張/在外騎車無法即時解決",
+                      "origin_turn": 7,
+                      "weight": 1.0,
+                      "hops": 0
+                    },
+                    {
+                      "label": "培訓未涵蓋的現場狀況",
+                      "origin_turn": 3,
+                      "weight": 0.6139,
+                      "hops": 2
+                    }
                   ]
                 }
               ],
@@ -528,6 +567,20 @@
                     "mentions": 1,
                     "contributors": [
                       "speaker_2"
+                    ],
+                    "gsn_linked_issues": [
+                      {
+                        "label": "居服員緊張/在外騎車無法即時解決",
+                        "origin_turn": 7,
+                        "weight": 0.7255,
+                        "hops": 1
+                      },
+                      {
+                        "label": "培訓未涵蓋的現場狀況",
+                        "origin_turn": 3,
+                        "weight": 0.6139,
+                        "hops": 2
+                      }
                     ]
                   },
                   {
@@ -540,6 +593,20 @@
                     "mentions": 1,
                     "contributors": [
                       "speaker_1"
+                    ],
+                    "gsn_linked_issues": [
+                      {
+                        "label": "居服員緊張/在外騎車無法即時解決",
+                        "origin_turn": 7,
+                        "weight": 1.0,
+                        "hops": 0
+                      },
+                      {
+                        "label": "培訓未涵蓋的現場狀況",
+                        "origin_turn": 3,
+                        "weight": 0.6139,
+                        "hops": 2
+                      }
                     ]
                   }
                 ],
@@ -760,6 +827,17 @@
                 }
               ],
               "em_iterations": 1
+            },
+            "gsn_flow_summary": {
+              "iterations": 3,
+              "alpha": 0.25,
+              "schedule": "backward_then_forward",
+              "reply_edges_E": 6,
+              "speaker_edges_U": 4,
+              "parallel_sibling_branches": 1,
+              "multi_hop_paths_3iter": 10,
+              "mean_eta_reply_weight": 0.7568,
+              "mean_lambda_speaker_weight": 0.7545
             },
             "turns_detail": [
               {
@@ -1183,6 +1261,17 @@
               ],
               "em_iterations": 2
             },
+            "gsn_flow_summary": {
+              "iterations": 3,
+              "alpha": 0.25,
+              "schedule": "backward_then_forward",
+              "reply_edges_E": 8,
+              "speaker_edges_U": 6,
+              "parallel_sibling_branches": 2,
+              "multi_hop_paths_3iter": 15,
+              "mean_eta_reply_weight": 0.7327,
+              "mean_lambda_speaker_weight": 0.7418
+            },
             "cross_turn_fusion": {
               "dominant_threads": [
                 "T_TOPIC_1"
@@ -1212,6 +1301,14 @@
                   "mentions": 2,
                   "contributors": [
                     "speaker_2"
+                  ],
+                  "gsn_linked_issues": [
+                    {
+                      "label": "家屬猝逝/去世",
+                      "origin_turn": 7,
+                      "weight": 1.0,
+                      "hops": 0
+                    }
                   ]
                 }
               ],
@@ -1295,6 +1392,14 @@
                     "mentions": 2,
                     "contributors": [
                       "speaker_2"
+                    ],
+                    "gsn_linked_issues": [
+                      {
+                        "label": "家屬猝逝/去世",
+                        "origin_turn": 7,
+                        "weight": 1.0,
+                        "hops": 0
+                      }
                     ]
                   }
                 ],
@@ -1456,6 +1561,17 @@
                 }
               ],
               "em_iterations": 2
+            },
+            "gsn_flow_summary": {
+              "iterations": 3,
+              "alpha": 0.25,
+              "schedule": "backward_then_forward",
+              "reply_edges_E": 8,
+              "speaker_edges_U": 6,
+              "parallel_sibling_branches": 2,
+              "multi_hop_paths_3iter": 15,
+              "mean_eta_reply_weight": 0.7327,
+              "mean_lambda_speaker_weight": 0.7418
             },
             "turns_detail": [
               {
@@ -2086,6 +2202,17 @@
               "reassigned_turns": [],
               "em_iterations": 1
             },
+            "gsn_flow_summary": {
+              "iterations": 3,
+              "alpha": 0.25,
+              "schedule": "backward_then_forward",
+              "reply_edges_E": 10,
+              "speaker_edges_U": 9,
+              "parallel_sibling_branches": 2,
+              "multi_hop_paths_3iter": 37,
+              "mean_eta_reply_weight": 0.7231,
+              "mean_lambda_speaker_weight": 0.7261
+            },
             "cross_turn_fusion": {
               "dominant_threads": [
                 "T_TOPIC_1"
@@ -2128,6 +2255,20 @@
                   "contributors": [
                     "speaker_3",
                     "speaker_2"
+                  ],
+                  "gsn_linked_issues": [
+                    {
+                      "label": "暴力性騷",
+                      "origin_turn": 2,
+                      "weight": 0.7999,
+                      "hops": 1
+                    },
+                    {
+                      "label": "照服員回報與緊急事件處理",
+                      "origin_turn": 3,
+                      "weight": 0.6234,
+                      "hops": 2
+                    }
                   ]
                 }
               ],
@@ -2238,6 +2379,20 @@
                     "contributors": [
                       "speaker_3",
                       "speaker_2"
+                    ],
+                    "gsn_linked_issues": [
+                      {
+                        "label": "暴力性騷",
+                        "origin_turn": 2,
+                        "weight": 0.7999,
+                        "hops": 1
+                      },
+                      {
+                        "label": "照服員回報與緊急事件處理",
+                        "origin_turn": 3,
+                        "weight": 0.6234,
+                        "hops": 2
+                      }
                     ]
                   }
                 ],
@@ -2535,6 +2690,17 @@
               "raw_cohesion_score": 0.448,
               "reassigned_turns": [],
               "em_iterations": 1
+            },
+            "gsn_flow_summary": {
+              "iterations": 3,
+              "alpha": 0.25,
+              "schedule": "backward_then_forward",
+              "reply_edges_E": 10,
+              "speaker_edges_U": 9,
+              "parallel_sibling_branches": 2,
+              "multi_hop_paths_3iter": 37,
+              "mean_eta_reply_weight": 0.7231,
+              "mean_lambda_speaker_weight": 0.7261
             },
             "turns_detail": [
               {
@@ -3129,6 +3295,17 @@
               "reassigned_turns": [],
               "em_iterations": 1
             },
+            "gsn_flow_summary": {
+              "iterations": 3,
+              "alpha": 0.25,
+              "schedule": "backward_then_forward",
+              "reply_edges_E": 10,
+              "speaker_edges_U": 8,
+              "parallel_sibling_branches": 0,
+              "multi_hop_paths_3iter": 35,
+              "mean_eta_reply_weight": 0.7489,
+              "mean_lambda_speaker_weight": 0.748
+            },
             "cross_turn_fusion": {
               "dominant_threads": [
                 "T_TOPIC_10"
@@ -3173,6 +3350,20 @@
                     "speaker_2",
                     "speaker_3",
                     "speaker_1"
+                  ],
+                  "gsn_linked_issues": [
+                    {
+                      "label": "刑法傷害/案主暴力",
+                      "origin_turn": 2,
+                      "weight": 1.0,
+                      "hops": 0
+                    },
+                    {
+                      "label": "暴力性騷",
+                      "origin_turn": 4,
+                      "weight": 0.6063,
+                      "hops": 2
+                    }
                   ]
                 }
               ],
@@ -3276,6 +3467,20 @@
                       "speaker_2",
                       "speaker_3",
                       "speaker_1"
+                    ],
+                    "gsn_linked_issues": [
+                      {
+                        "label": "刑法傷害/案主暴力",
+                        "origin_turn": 2,
+                        "weight": 1.0,
+                        "hops": 0
+                      },
+                      {
+                        "label": "暴力性騷",
+                        "origin_turn": 4,
+                        "weight": 0.6063,
+                        "hops": 2
+                      }
                     ]
                   }
                 ],
@@ -3459,6 +3664,17 @@
               "raw_cohesion_score": 0.452,
               "reassigned_turns": [],
               "em_iterations": 1
+            },
+            "gsn_flow_summary": {
+              "iterations": 3,
+              "alpha": 0.25,
+              "schedule": "backward_then_forward",
+              "reply_edges_E": 10,
+              "speaker_edges_U": 8,
+              "parallel_sibling_branches": 0,
+              "multi_hop_paths_3iter": 35,
+              "mean_eta_reply_weight": 0.7489,
+              "mean_lambda_speaker_weight": 0.748
             },
             "turns_detail": [
               {
@@ -3917,10 +4133,12 @@
               "graph_role_evidence": {},
               "graph_induced_transitions": 0,
               "anchor_turn_topology": {
-                "turn_id": 9,
-                "basis": "session_trigger",
-                "reply_to_turn_id": 8,
-                "replied_by_turn_ids": []
+                "turn_id": 2,
+                "basis": "issue_trigger",
+                "reply_to_turn_id": 1,
+                "replied_by_turn_ids": [
+                  3
+                ]
               }
             },
             "bi_cl_disentangle_summary": {
@@ -3940,11 +4158,35 @@
               "reassigned_turns": [],
               "em_iterations": 1
             },
+            "gsn_flow_summary": {
+              "iterations": 3,
+              "alpha": 0.25,
+              "schedule": "backward_then_forward",
+              "reply_edges_E": 8,
+              "speaker_edges_U": 6,
+              "parallel_sibling_branches": 0,
+              "multi_hop_paths_3iter": 22,
+              "mean_eta_reply_weight": 0.7605,
+              "mean_lambda_speaker_weight": 0.7638
+            },
             "cross_turn_fusion": {
               "dominant_threads": [
                 "T_TOPIC_10"
               ],
-              "issue_triggers": [],
+              "issue_triggers": [
+                {
+                  "label": "搜尋參數不合理/會議細節發散",
+                  "raised_by": "speaker_1",
+                  "role": "researcher_主持團隊",
+                  "turn_id": 2,
+                  "thread_id": "T_TOPIC_10",
+                  "evidence": "參數的問題",
+                  "mentions": 2,
+                  "contributors": [
+                    "speaker_1"
+                  ]
+                }
+              ],
               "proposed_resolutions": [
                 {
                   "label": "照服員端緊急鈕+控制APP",
@@ -3957,6 +4199,14 @@
                   "contributors": [
                     "speaker_3",
                     "speaker_1"
+                  ],
+                  "gsn_linked_issues": [
+                    {
+                      "label": "搜尋參數不合理/會議細節發散",
+                      "origin_turn": 6,
+                      "weight": 0.8001,
+                      "hops": 1
+                    }
                   ]
                 },
                 {
@@ -3970,6 +4220,14 @@
                   "contributors": [
                     "speaker_1",
                     "speaker_2"
+                  ],
+                  "gsn_linked_issues": [
+                    {
+                      "label": "搜尋參數不合理/會議細節發散",
+                      "origin_turn": 6,
+                      "weight": 0.8001,
+                      "hops": 1
+                    }
                   ]
                 }
               ],
@@ -4031,7 +4289,20 @@
                 "dominant_threads": [
                   "T_TOPIC_10"
                 ],
-                "issue_triggers": [],
+                "issue_triggers": [
+                  {
+                    "label": "搜尋參數不合理/會議細節發散",
+                    "raised_by": "speaker_1",
+                    "role": "researcher_主持團隊",
+                    "turn_id": 2,
+                    "thread_id": "T_TOPIC_10",
+                    "evidence": "參數的問題",
+                    "mentions": 2,
+                    "contributors": [
+                      "speaker_1"
+                    ]
+                  }
+                ],
                 "proposed_resolutions": [
                   {
                     "label": "照服員端緊急鈕+控制APP",
@@ -4044,6 +4315,14 @@
                     "contributors": [
                       "speaker_3",
                       "speaker_1"
+                    ],
+                    "gsn_linked_issues": [
+                      {
+                        "label": "搜尋參數不合理/會議細節發散",
+                        "origin_turn": 6,
+                        "weight": 0.8001,
+                        "hops": 1
+                      }
                     ]
                   },
                   {
@@ -4057,6 +4336,14 @@
                     "contributors": [
                       "speaker_1",
                       "speaker_2"
+                    ],
+                    "gsn_linked_issues": [
+                      {
+                        "label": "搜尋參數不合理/會議細節發散",
+                        "origin_turn": 6,
+                        "weight": 0.8001,
+                        "hops": 1
+                      }
                     ]
                   }
                 ],
@@ -4196,10 +4483,12 @@
               "graph_role_evidence": {},
               "graph_induced_transitions": 0,
               "anchor_turn_topology": {
-                "turn_id": 9,
-                "basis": "session_trigger",
-                "reply_to_turn_id": 8,
-                "replied_by_turn_ids": []
+                "turn_id": 2,
+                "basis": "issue_trigger",
+                "reply_to_turn_id": 1,
+                "replied_by_turn_ids": [
+                  3
+                ]
               }
             },
             "bi_cl_disentangle_summary": {
@@ -4218,6 +4507,17 @@
               "raw_cohesion_score": 0.409,
               "reassigned_turns": [],
               "em_iterations": 1
+            },
+            "gsn_flow_summary": {
+              "iterations": 3,
+              "alpha": 0.25,
+              "schedule": "backward_then_forward",
+              "reply_edges_E": 8,
+              "speaker_edges_U": 6,
+              "parallel_sibling_branches": 0,
+              "multi_hop_paths_3iter": 22,
+              "mean_eta_reply_weight": 0.7605,
+              "mean_lambda_speaker_weight": 0.7638
             },
             "turns_detail": [
               {
@@ -4675,6 +4975,17 @@
               ],
               "em_iterations": 1
             },
+            "gsn_flow_summary": {
+              "iterations": 3,
+              "alpha": 0.25,
+              "schedule": "backward_then_forward",
+              "reply_edges_E": 6,
+              "speaker_edges_U": 6,
+              "parallel_sibling_branches": 1,
+              "multi_hop_paths_3iter": 16,
+              "mean_eta_reply_weight": 0.6908,
+              "mean_lambda_speaker_weight": 0.6967
+            },
             "cross_turn_fusion": {
               "dominant_threads": [
                 "T_TOPIC_10"
@@ -4704,6 +5015,14 @@
                   "mentions": 1,
                   "contributors": [
                     "speaker_3"
+                  ],
+                  "gsn_linked_issues": [
+                    {
+                      "label": "照服員回報與緊急事件處理",
+                      "origin_turn": 5,
+                      "weight": 0.4074,
+                      "hops": 3
+                    }
                   ]
                 }
               ],
@@ -4785,6 +5104,14 @@
                     "mentions": 1,
                     "contributors": [
                       "speaker_3"
+                    ],
+                    "gsn_linked_issues": [
+                      {
+                        "label": "照服員回報與緊急事件處理",
+                        "origin_turn": 5,
+                        "weight": 0.4074,
+                        "hops": 3
+                      }
                     ]
                   }
                 ],
@@ -4970,6 +5297,17 @@
                 }
               ],
               "em_iterations": 1
+            },
+            "gsn_flow_summary": {
+              "iterations": 3,
+              "alpha": 0.25,
+              "schedule": "backward_then_forward",
+              "reply_edges_E": 6,
+              "speaker_edges_U": 6,
+              "parallel_sibling_branches": 1,
+              "multi_hop_paths_3iter": 16,
+              "mean_eta_reply_weight": 0.6908,
+              "mean_lambda_speaker_weight": 0.6967
             },
             "turns_detail": [
               {
@@ -5582,6 +5920,17 @@
               ],
               "em_iterations": 1
             },
+            "gsn_flow_summary": {
+              "iterations": 3,
+              "alpha": 0.25,
+              "schedule": "backward_then_forward",
+              "reply_edges_E": 10,
+              "speaker_edges_U": 8,
+              "parallel_sibling_branches": 1,
+              "multi_hop_paths_3iter": 33,
+              "mean_eta_reply_weight": 0.7291,
+              "mean_lambda_speaker_weight": 0.7262
+            },
             "cross_turn_fusion": {
               "dominant_threads": [
                 "T_TOPIC_2"
@@ -5612,6 +5961,14 @@
                   "mentions": 2,
                   "contributors": [
                     "speaker_2"
+                  ],
+                  "gsn_linked_issues": [
+                    {
+                      "label": "聲紋收集困難/家屬多變",
+                      "origin_turn": 8,
+                      "weight": 0.7081,
+                      "hops": 1
+                    }
                   ]
                 }
               ],
@@ -5704,6 +6061,14 @@
                     "mentions": 2,
                     "contributors": [
                       "speaker_2"
+                    ],
+                    "gsn_linked_issues": [
+                      {
+                        "label": "聲紋收集困難/家屬多變",
+                        "origin_turn": 8,
+                        "weight": 0.7081,
+                        "hops": 1
+                      }
                     ]
                   }
                 ],
@@ -5961,6 +6326,17 @@
                 }
               ],
               "em_iterations": 1
+            },
+            "gsn_flow_summary": {
+              "iterations": 3,
+              "alpha": 0.25,
+              "schedule": "backward_then_forward",
+              "reply_edges_E": 10,
+              "speaker_edges_U": 8,
+              "parallel_sibling_branches": 1,
+              "multi_hop_paths_3iter": 33,
+              "mean_eta_reply_weight": 0.7291,
+              "mean_lambda_speaker_weight": 0.7262
             },
             "turns_detail": [
               {
@@ -6446,6 +6822,17 @@
               ],
               "em_iterations": 4
             },
+            "gsn_flow_summary": {
+              "iterations": 3,
+              "alpha": 0.25,
+              "schedule": "backward_then_forward",
+              "reply_edges_E": 7,
+              "speaker_edges_U": 5,
+              "parallel_sibling_branches": 0,
+              "multi_hop_paths_3iter": 14,
+              "mean_eta_reply_weight": 0.7246,
+              "mean_lambda_speaker_weight": 0.727
+            },
             "cross_turn_fusion": {
               "dominant_threads": [
                 "T_TOPIC_1"
@@ -6478,6 +6865,14 @@
                   "contributors": [
                     "speaker_1",
                     "speaker_2"
+                  ],
+                  "gsn_linked_issues": [
+                    {
+                      "label": "小照回答錯誤/不完整",
+                      "origin_turn": 3,
+                      "weight": 1.0,
+                      "hops": 0
+                    }
                   ]
                 }
               ],
@@ -6565,6 +6960,14 @@
                     "contributors": [
                       "speaker_1",
                       "speaker_2"
+                    ],
+                    "gsn_linked_issues": [
+                      {
+                        "label": "小照回答錯誤/不完整",
+                        "origin_turn": 3,
+                        "weight": 1.0,
+                        "hops": 0
+                      }
                     ]
                   }
                 ],
@@ -6757,6 +7160,17 @@
                 }
               ],
               "em_iterations": 4
+            },
+            "gsn_flow_summary": {
+              "iterations": 3,
+              "alpha": 0.25,
+              "schedule": "backward_then_forward",
+              "reply_edges_E": 7,
+              "speaker_edges_U": 5,
+              "parallel_sibling_branches": 0,
+              "multi_hop_paths_3iter": 14,
+              "mean_eta_reply_weight": 0.7246,
+              "mean_lambda_speaker_weight": 0.727
             },
             "turns_detail": [
               {
@@ -7242,6 +7656,17 @@
               "reassigned_turns": [],
               "em_iterations": 1
             },
+            "gsn_flow_summary": {
+              "iterations": 3,
+              "alpha": 0.25,
+              "schedule": "backward_then_forward",
+              "reply_edges_E": 10,
+              "speaker_edges_U": 8,
+              "parallel_sibling_branches": 1,
+              "multi_hop_paths_3iter": 32,
+              "mean_eta_reply_weight": 0.7031,
+              "mean_lambda_speaker_weight": 0.7042
+            },
             "cross_turn_fusion": {
               "dominant_threads": [
                 "T_TOPIC_2"
@@ -7273,6 +7698,14 @@
                     "speaker_1",
                     "speaker_2",
                     "speaker_3"
+                  ],
+                  "gsn_linked_issues": [
+                    {
+                      "label": "居督與照服員綁定",
+                      "origin_turn": 3,
+                      "weight": 0.7464,
+                      "hops": 1
+                    }
                   ]
                 }
               ],
@@ -7365,6 +7798,14 @@
                       "speaker_1",
                       "speaker_2",
                       "speaker_3"
+                    ],
+                    "gsn_linked_issues": [
+                      {
+                        "label": "居督與照服員綁定",
+                        "origin_turn": 3,
+                        "weight": 0.7464,
+                        "hops": 1
+                      }
                     ]
                   }
                 ],
@@ -7558,6 +7999,17 @@
               "raw_cohesion_score": 0.457,
               "reassigned_turns": [],
               "em_iterations": 1
+            },
+            "gsn_flow_summary": {
+              "iterations": 3,
+              "alpha": 0.25,
+              "schedule": "backward_then_forward",
+              "reply_edges_E": 10,
+              "speaker_edges_U": 8,
+              "parallel_sibling_branches": 1,
+              "multi_hop_paths_3iter": 32,
+              "mean_eta_reply_weight": 0.7031,
+              "mean_lambda_speaker_weight": 0.7042
             },
             "turns_detail": [
               {

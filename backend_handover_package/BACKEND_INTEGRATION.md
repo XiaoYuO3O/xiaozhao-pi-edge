@@ -79,3 +79,21 @@ Refinement runs as unsupervised EM: each turn is reassigned to the nearest leave
 | `bi_cl_disentangle_summary.raw_greedy_threads` / `refined_prototype_threads` | 貪婪切分串數 → 原型精煉後串數（另附 `raw_thread_ids` / `refined_thread_ids` / `reassigned_turns`）。 |
 | `bi_cl_disentangle_summary.prototype_cohesion_score` | 留一法 cos(v_i, p_k(i)) 平均（單輪串記 0，碎片化不加分）；對照 `raw_cohesion_score`。 |
 
+## 7. v7.6 GSN utterance-level graph-structured encoder (Hu et al., *GSN: A Graph-Structured Network for Multi-Party Dialogues*, IJCAI 2019)
+`gsn_propagate_session(turns, gift_graph, initial)` implements Algorithm 1 (UG-E) on the GIFT graph's substantive nodes:
+- **E (reply edges):** e_{i,j} = 1 (i < j) when turn j replies to turn i (the GIFT `reply-to` link).
+- **U (speaker edges):** u_{i,j} = 1 (i < j) for chronologically consecutive turns of the same speaker (O(N) chain form).
+- **State s_i⁰:** sparse features `intent:*` (domain intents), `mintrec:*` (GIFT-amended fine intent), `issue:*` / `res:*` (catalog slots), `risk:live_crisis`.
+- **Gating:** η_i = SQH(‖ΔE_i‖), λ_i = SQH(‖ΔU_i‖), with SQH(x) = (α + x) / (1 + x), α = 0.25, so gates lie in [0.25, 1). Δ is the mean neighbour state. It is max-fused into s_i, so weights stay in [0, 1] and decay with each hop. This is a training-free stand-in for GSN's GRU.
+- **Schedule (BIF):** 3 backward iterations (Eᵀ, Uᵀ: children → parents), then 3 forward iterations (E, U: parents → children). Content from one child reaches its parallel siblings (child → parent → sibling) and descendants up to 3 hops away.
+
+`aggregate_cross_turn_slots(..., gsn=...)` reads the propagated states. Each `proposed_resolutions[*]` gains `gsn_linked_issues` (`label`, `origin_turn`, `weight`, `hops`). An issue raised outside the dominant thread(s) whose feature reaches a core turn with weight ≥ 0.5 is imported with `via: "gsn_flow"`, `gsn_weight`, `gsn_hops` and `reached_turn`. Separately, a new issue catalog entry, `搜尋參數不合理/會議細節發散`, fills the iv2 49:15 gap. That window is a single thread, so the catalog entry is what fills it. GSN adds the issue→resolution linkage (turn 6 → turns 7 and 8, 1 hop).
+
+| 欄位 | 說明 |
+|---|---|
+| `gsn_flow_summary.iterations` / `alpha` / `schedule` | 3 / 0.25 / `backward_then_forward`。 |
+| `gsn_flow_summary.reply_edges_E` | **E** 中的有向回覆邊數。 |
+| `gsn_flow_summary.speaker_edges_U` | **U** 中同說話者的時序邊數。 |
+| `gsn_flow_summary.parallel_sibling_branches` | 有 ≥ 2 個平行回覆的父輪數（GSN Fig 1）。 |
+| `gsn_flow_summary.multi_hop_paths_3iter` | E ∪ U 中最短距離為 2–3 跳的有序 (i, j) 配對數。 |
+| `gsn_flow_summary.mean_eta_reply_weight` / `mean_lambda_speaker_weight` | 6 次迭代中所有 η_i / λ_i 的平均值。 |

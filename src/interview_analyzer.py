@@ -780,7 +780,7 @@ def export_extracted_samples(report_paths: List[Path], out_path: Path, top_k: in
                                                           "pi_state", "selected_turn_indices", "speaker_roles",
                                                           "speaker_role_sources",
                                                           "mintrec_transitions", "gift_graph_summary",
-                                                          "bi_cl_disentangle_summary")},
+                                                          "bi_cl_disentangle_summary", "gsn_flow_summary")},
                                "cross_turn_fusion": (res.get("dst_slots") or {}).get("cross_turn_fusion"),
                                "who_to_whom_role": {d["turn_id"]: d["who_to_whom_role"]
                                                     for d in res.get("turns_detail", [])}}})
