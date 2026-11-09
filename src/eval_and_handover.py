@@ -14,7 +14,7 @@ def run_ablation_and_export(quiet: bool = False):
     scenarios = build_5_benchmark_scenarios()
     payloads = [engine.analyze_session(s) for s in scenarios]
 
-    out_file = Path(BASE_DIR) / "handover_payloads_for_backend.json"
+    out_file = Path(BASE_DIR) / "backend_handover_package" / "mpc_5_scenarios_handover.json"
     out_file.write_text(json.dumps(payloads, ensure_ascii=False, indent=2), encoding="utf-8")
 
     if quiet:

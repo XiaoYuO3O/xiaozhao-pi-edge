@@ -1,11 +1,17 @@
 # 小照 (CareCopilot) 多人多輪意圖偵測模組 — 後端對接指南
 
 ## 1. 檔案清單
-- `mpc_core.py`: 核心演算法（受話者辨識 + TD/MF 話題解纏結 + OOD/P0 安全路由），零外部套件依賴，可直接複製進後端專案目錄。
-- `demo_real_clip.json`: Whisper STT 轉出後的輸入格式範本。
-- `mpc_5_scenarios_handover.json`: 5 大長照情境經本引擎分析後的標準輸出 JSON（供對齊 DB 與 LINE LIFF 欄位）。`handover_payloads_for_backend.json` 為相同內容的舊檔名，保留供既有程式相容。
-- `iot_api_client.py`: 樹莓派邊緣端發送至 `/api/iot/v1/utterances` 與 `/api/transcripts/{id}/confirm` 的對接客戶端（邊緣端使用，依賴 Pi 端其他模組）。
-- `real_interviews_extracted_samples.json`: 三場真實未剪輯訪談（interview1 / interview2 / interview3_full）各前 3 名多人熱點對話（共 9 個），已移除 `T_BACKCHANNEL_NOISE` 附和雜訊與 Whisper 重複幻覺。每個熱點的 `segments` 可直接餵給 `load_from_whisper_json`，`mpc_result` 為本引擎的分析結果，可作為回歸測試基準。
+- `mpc_core.py`: 核心演算法（受話者辨識、TD/MF 與 Bi-CL 話題解纏結、GIFT/GSN 圖傳播、OOD/P0 安全路由）。零外部套件依賴，可直接複製進後端專案目錄。
+- `BACKEND_INTEGRATION.md`: 本文件。
+- `demo_real_clip.json`: Whisper STT 輸入格式範本（頂層 `{"segments": [...]}`），內容取自真實訪談 interview2 49:15 熱點，可直接用於下方快速呼叫範例。
+- `mpc_5_scenarios_handover.json`: 5 大長照情境經本引擎分析後的標準輸出 JSON（供對齊 DB 與 LINE LIFF 欄位），即 `/api/iot/v1/utterances` 的 request body 格式。
+- `real_interviews_extracted_samples.json`: 三場真實未剪輯訪談（interview1 / interview2 / interview3_full）各前 3 名多人熱點對話（共 9 個），已移除 `T_BACKCHANNEL_NOISE` 附和雜訊與 Whisper 重複幻覺。每個熱點的 `segments` 包成 `{"segments": [...]}` 後即可餵給 `load_from_whisper_json`；`mpc_result` 為本引擎的分析結果，可作為回歸測試基準。
+
+### 樹莓派 → 後端 HTTP 介面
+| 端點 | Request body | 說明 |
+|---|---|---|
+| `POST /api/iot/v1/utterances` | `analyze_session()` 的完整輸出（格式同 `mpc_5_scenarios_handover.json` 的單一元素） | `client_event_id` 是 uuid5(`session_id`_`last_turn_id`)。Pi 離線時會先排隊再重送，所以後端必須以 `client_event_id` 做冪等去重。 |
+| `POST /api/transcripts/{id}/confirm` | `{"confirmed_role_map": {"speaker_1": "<role>", ...}}` | LINE LIFF 確認 speaker → 角色對應後回寫。 |
 
 ## 2. 後端伺服器 3 行快速呼叫法 (Python)
 當小照後端收到語音並透過 Whisper 轉出逐字稿後，在送入 GraphRAG / LLM 之前加入以下 3 行：
@@ -78,6 +84,7 @@ Refinement runs as unsupervised EM: each turn is reassigned to the nearest leave
 | `bi_cl_disentangle_summary.estimated_k` | 估計的 session 數 K（上限見 `k_upper_bound`）。 |
 | `bi_cl_disentangle_summary.raw_greedy_threads` / `refined_prototype_threads` | 貪婪切分串數 → 原型精煉後串數（另附 `raw_thread_ids` / `refined_thread_ids` / `reassigned_turns`）。 |
 | `bi_cl_disentangle_summary.prototype_cohesion_score` | 留一法 cos(v_i, p_k(i)) 平均（單輪串記 0，碎片化不加分）；對照 `raw_cohesion_score`。 |
+
 
 ## 7. v7.6 GSN utterance-level graph-structured encoder (Hu et al., *GSN: A Graph-Structured Network for Multi-Party Dialogues*, IJCAI 2019)
 `gsn_propagate_session(turns, gift_graph, initial)` implements Algorithm 1 (UG-E) on the GIFT graph's substantive nodes:
