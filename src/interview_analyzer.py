@@ -68,7 +68,8 @@ BACKCHANNEL_HARD_MAX_CHARS = 16  # longer turns are never backchannel noise
 
 WHISPER_INITIAL_PROMPT = ("繁體中文台灣長照機構訪談：嘉安、照服員、居服員、居督、督導、知識庫、法規、"
                           "長照基本法、小照、個案、家屬。")
-ASR_FIXES = (("照不遠", "照服員"), ("照覆點", "照服員"), ("照服點", "照服員"), ("家安", "嘉安"),
+ASR_FIXES = (("資料擠", "資料集"), ("數沒派", "樹莓派"),   # 2026-11-11 lab meeting (資料集 / 樹莓派)
+             ("照不遠", "照服員"), ("照覆點", "照服員"), ("照服點", "照服員"), ("家安", "嘉安"),
              ("知識苦", "知識庫"), ("天馬行公", "天馬行空"),
              # real telemetry homophones (longer phrases before their substrings)
              ("頁島世界", "跌倒事件"), ("頁島", "跌倒"), ("暴力世界", "暴力事件"), ("暴力行朝", "暴力性騷"),
@@ -157,7 +158,7 @@ def convert_to_16k_wav(input_path: str) -> str:
         return input_path
     AUDIO_TMP.mkdir(parents=True, exist_ok=True)
     out = AUDIO_TMP / f"{Path(input_path).stem}_16k.wav"
-    if out.exists() and out.stat().st_size > 44:
+    if out.exists() and _is_16k_mono_wav(str(out)):
         return str(out)
     cmds = []
     if platform.system() == "Darwin" and shutil.which("afconvert"):
@@ -165,14 +166,27 @@ def convert_to_16k_wav(input_path: str) -> str:
     if shutil.which("ffmpeg"):
         cmds.append(["ffmpeg", "-y", "-loglevel", "error", "-i", input_path, "-ar", str(TARGET_SR), "-ac", "1",
                      "-sample_fmt", "s16", str(out)])
-    if not cmds:
-        raise RuntimeError("Neither afconvert nor ffmpeg is available for audio conversion")
     last_err = ""
     for cmd in cmds:
         res = subprocess.run(cmd, capture_output=True, text=True)
-        if res.returncode == 0 and out.exists() and out.stat().st_size > 44:
+        if res.returncode == 0 and out.exists() and _is_16k_mono_wav(str(out)):
             return str(out)
-        last_err = (res.stderr or res.stdout).strip()
+        last_err = (res.stderr or res.stdout).strip() or "non-PCM WAV header (e.g. format 65534)"
+    try:
+        import av
+        with av.open(input_path) as c, wave.open(str(out), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(TARGET_SR)
+            st = c.streams.audio[0]
+            rs = av.AudioResampler(format="s16", layout="mono", rate=TARGET_SR)
+            for fr in c.decode(st):
+                for o in rs.resample(fr):
+                    w.writeframes(bytes(o.planes[0])[: o.samples * 2])
+        if _is_16k_mono_wav(str(out)):
+            return str(out)
+    except Exception as e:
+        last_err = f"{last_err}; PyAV fallback: {e}"
     raise RuntimeError(f"audio conversion failed: {last_err}")
 
 
@@ -856,10 +870,20 @@ def _turn_sample(t: dict, merged_by_start: Dict[float, dict]) -> dict:
             "domain_intents": XiaoZhaoMPCEngine().detect_domain_intents(t["text"])}
 
 
+# recordings that are not Jia-An home-care interviews (interview4 = 2026-11-11 lab meeting with the professor):
+# their *_mpc_report.json stays a separate report and never enters the backend handover samples
+NON_HANDOVER_STEM_PREFIXES = ("interview4",)
+
+
+def is_handover_stem(stem: str) -> bool:
+    return not any(stem.startswith(p) for p in NON_HANDOVER_STEM_PREFIXES)
+
+
 def export_extracted_samples(report_paths: List[Path], out_path: Path, top_k: int = 3) -> dict:
     """Top clean multi-party hotspots (T_BACKCHANNEL_NOISE excluded) from each interview report, in a shape
     the backend can replay: `segments` feeds mpc_core.load_from_whisper_json; `mpc_result` is the
     XiaoZhaoMPCEngine.analyze_session verdict for that hotspot."""
+    report_paths = [rp for rp in report_paths if is_handover_stem(Path(rp).name[: -len("_mpc_report.json")])]
     engine = XiaoZhaoMPCEngine()
     out = {"schema": "xiaozhao.real_interview_samples.v1", "privacy": SAMPLES_PRIVACY,
            "noise_policy": "T_BACKCHANNEL_NOISE turns removed; Whisper repetition loops collapsed", "interviews": []}
@@ -1135,7 +1159,8 @@ def main() -> int:
         reports = sorted(OUT_DIR.glob("interview*_mpc_report.json"))
         res = export_extracted_samples(reports, dst)
         print(f"exported {sum(len(i['hotspots']) for i in res['interviews'])} hotspots from "
-              f"{len(reports)} reports -> {dst}")
+              f"{len(res['interviews'])} Jia-An reports -> {dst} (skipped: "
+              f"{[r.name for r in reports if not is_handover_stem(r.name[: -len('_mpc_report.json')])] or 'none'})")
         return 0
     if "--quiet-test" in sys.argv:
         try:

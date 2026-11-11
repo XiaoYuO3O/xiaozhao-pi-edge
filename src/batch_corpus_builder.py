@@ -230,10 +230,16 @@ def run_batch(audio_dir: str, model_size: str = "base", reuse_reports: bool = Fa
         p for p in adir.iterdir()
         if p.is_file() and p.suffix.lower() in (".mp3", ".m4a", ".wav") and not p.name.startswith(".")
     ])
+    skipped = [af.stem for af in audio_files if not ia.is_handover_stem(af.stem)]
+    audio_files = [af for af in audio_files if ia.is_handover_stem(af.stem)]
     # --reuse-reports also keeps recordings whose audio is absent (their hotspots fall back to proxy voiceprints)
     report_only = sorted(rp.name[: -len("_mpc_report.json")] for rp in out_dir.glob("*_mpc_report.json")
-                         if rp.name[: -len("_mpc_report.json")] not in {af.stem for af in audio_files}) \
+                         if rp.name[: -len("_mpc_report.json")] not in {af.stem for af in audio_files}
+                         and ia.is_handover_stem(rp.name[: -len("_mpc_report.json")])) \
         if reuse_reports else []
+    for stem in skipped:
+        print(f"[{stem}] lab-meeting recording: excluded from the Jia-An handover corpus "
+              f"(its *_mpc_report.json stays a separate report)")
     if not audio_files and not report_only:
         print(f"[WARN] No audio files found in {adir}")
         return 1

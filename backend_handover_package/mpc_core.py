@@ -1059,20 +1059,20 @@ VP_VOICED_CEPS = 0.12             # cepstral pitch peak above this -> voiced fra
 VP_DIM = 24
 # frame channels: c0..c12, 4 band-energy fractions, centroid (kHz), flatness, ZCR, log2(F0/150 Hz), voicing
 VP_CH_BAND, VP_CH_CENTROID, VP_CH_FLAT, VP_CH_ZCR, VP_CH_LOGF0, VP_CH_VOICING = 13, 17, 18, 19, 20, 21
-# fixed population priors for channel standardisation: per-channel mean / std over 13k active frames of the 6
-# real hotspot windows (pooled over all speakers; unsupervised, no labels, no per-speaker enrollment)
-VP_PRIOR_MEAN = [58.65, -0.246, -0.097, -1.151, -1.647, -1.176, -0.324, -0.325, -0.144, -0.178, -0.299, -0.381,
-                 -0.211, 0.088, 0.423, 0.210, 0.297, 1.364, 0.229, 0.122, 0.342, 0.140]
-VP_PRIOR_STD = [15.43, 3.149, 2.911, 2.476, 1.936, 1.403, 1.183, 1.281, 1.073, 0.952, 0.898, 0.800, 0.786,
-                0.118, 0.251, 0.164, 0.255, 0.572, 0.137, 0.126, 0.492, 0.081]
-VP_LOGSIG_PRIOR = [-0.543, -0.452, -0.494, -0.399, -0.890]   # mean log sigma~ of c1..c4, log2 F0 (same turns)
+# fixed population priors for channel standardisation: per-channel mean / std over the 5.9k active frames of the
+# 43 Train turns (first 50 % of each recording's labelled hotspot turns) of src/train_val_test_eval.py (pooled
+# over all speakers; unsupervised, no labels, no per-speaker enrollment; Val / Test turns never enter the fit)
+VP_PRIOR_MEAN = [65.68, 0.645, -0.137, -0.977, -1.277, -1.074, -0.222, -0.468, -0.09, -0.142, -0.308, -0.321,
+                 -0.16, 0.114, 0.448, 0.208, 0.246, 1.241, 0.224, 0.096, 0.341, 0.143]
+VP_PRIOR_STD = [15.95, 2.814, 2.824, 2.244, 1.938, 1.355, 1.164, 1.173, 0.974, 0.935, 0.882, 0.79, 0.763, 0.132,
+                0.24, 0.16, 0.237, 0.54, 0.133, 0.093, 0.489, 0.08]
+VP_LOGSIG_PRIOR = [-0.498, -0.459, -0.438, -0.398, -0.93]   # mean log sigma~ of c1..c4, log2 F0 (same turns)
 # x_i layout (24): mu~ c1..c12 | log sigma~ c1..c4 | mu~ / log sigma~ log2 F0 | mu~ ZCR, centroid, low band,
 # top band, flatness | mu~ c0 (level, a distance cue). Per-dimension weights (applied before L2 normalisation)
-# lift the prosodic / spectral-shape dims and damp content-dominated high cepstra: on the real hotspots ZCR,
-# centroid, F0, level and c1 vary 1.8-5.8x more across adjacent speakers than within one turn's pieces, c2 / c7 /
-# c9 / c12 less (ratio <= 1). The weighting lifts the within-turn vs adjacent-speaker effect size d' 0.36 -> 0.50.
-VP_DIM_WEIGHTS = [1.5, 0.3, 0.7, 0.7, 0.7, 1.0, 0.4, 0.5, 0.3, 0.7, 0.7, 0.4, 1.0, 1.0, 0.3, 0.5,
-                  1.5, 0.7, 2.0, 1.5, 0.7, 1.5, 0.7, 0.5]
+# = clip(F_d / median F, 0.3, 2.0), F_d = adjacent-speaker / within-turn-piece variance ratio on the Train turns;
+# the linear family won on Val d' (0.715 vs sqrt 0.660 / uniform 0.518). Held-out Test d' 0.341.
+VP_DIM_WEIGHTS = [1.6, 0.9, 1.1, 1.4, 1.9, 0.9, 1.4, 1.1, 0.8, 0.7, 0.7, 0.6, 0.9, 0.7, 1.0, 0.8, 1.5, 0.9, 2.0,
+                  2.0, 0.8, 1.9, 0.6, 1.0]
 VP_SOURCE_WAV, VP_SOURCE_PROXY_AC, VP_SOURCE_PROXY_TEXT = "wav_75pct_anchor", "proxy_acoustic", "proxy_text"
 # blend weight c of the voiceprint affinity against the diarizer label in the same-speaker probability
 VP_CONFIDENCE = {VP_SOURCE_WAV: 0.5, VP_SOURCE_PROXY_AC: 0.25, VP_SOURCE_PROXY_TEXT: 0.0}
