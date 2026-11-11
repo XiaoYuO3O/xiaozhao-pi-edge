@@ -1,4 +1,7 @@
+import cmath
+import itertools
 import json
+import math
 import re
 import sys
 import time
@@ -29,6 +32,11 @@ class UtteranceTurn:
     thread_id: str = "T0"
     rms_energy: float = 0.0  # int16 RMS amplitude of the segment (0 = unknown)
     zcr_pitch: float = 0.0   # zero-crossing rate 0..1, pitch proxy (0 = unknown)
+    end_time: float = 0.0    # segment end (s); 0 = unknown (next turn's start is used)
+    voiceprint: Optional[List[float]] = None             # v7.7 session-local 24-d turn voiceprint x_i
+    voiceprint_subvectors: Optional[List[List[float]]] = None   # > 6 s turns: Must-Linked sub-window vectors
+    voiceprint_source: str = ""                          # wav_75pct_anchor | proxy_acoustic | proxy_text
+    near_field_score: float = -1.0                       # 0..1 headset / near-field likelihood (-1 = unknown)
 
 
 # ------------------------------------------------- MIntRec (ACM MM '22) taxonomy
@@ -665,7 +673,8 @@ def gsn_initial_state(turn: UtteranceTurn, fine: str = "",
 
 def gsn_propagate_session(turns: List[UtteranceTurn], graph: Dict[str, Any],
                           initial: Optional[Dict[int, Dict[str, float]]] = None,
-                          iterations: int = GSN_ITERATIONS, alpha: float = GSN_ALPHA) -> Dict[str, Any]:
+                          iterations: int = GSN_ITERATIONS, alpha: float = GSN_ALPHA,
+                          speaker_weight: Optional[Callable[[int, int], float]] = None) -> Dict[str, Any]:
     """GSN UG-E (Algorithm 1) over the GIFT graph's substantive nodes.
 
     E: e_{i,j}=1 (i<j) when turn j replies to turn i (GIFT reply-to). U: u_{i,j}=1 (i<j) for chronologically
@@ -673,7 +682,9 @@ def gsn_propagate_session(turns: List[UtteranceTurn], graph: Dict[str, Any],
     the mean neighbour state dE_i / dU_i, gates it with eta_i = SQH(||dE_i||) / lambda_i = SQH(||dU_i||) and
     max-fuses it into s_i (a training-free stand-in for GSN's GRU fusion, so weights stay in [0, 1] and decay
     per hop). N backward iterations (E^T, U^T: children -> parents) are followed by N forward ones (E, U:
-    parents -> children), so a child's content reaches its parallel siblings and descendants up to N hops."""
+    parents -> children), so a child's content reaches its parallel siblings and descendants up to N hops.
+    speaker_weight(i, j) (Upgrade G) turns U into a weighted adjacency: u_{i,j} = the acoustic-lexical same-speaker
+    confidence of the chained pair instead of a hard 1, scaling dU_i (and so lambda_i). None keeps U binary."""
     ids = list(graph["node_ids"])
     idset = set(ids)
     speaker_of = graph["speaker_of"]
@@ -694,10 +705,13 @@ def gsn_propagate_session(turns: List[UtteranceTurn], graph: Dict[str, Any],
     states: Dict[int, Dict[str, GSNFeature]] = {i: {f: (w, i, 0) for f, w in initial.get(i, {}).items()}
                                                 for i in ids}
 
-    def delta(nbrs: List[int], snap: Dict[int, Dict[str, GSNFeature]]) -> Tuple[Dict[str, GSNFeature], float]:
+    def delta(nbrs: List[int], snap: Dict[int, Dict[str, GSNFeature]],
+              wts: Optional[List[float]] = None) -> Tuple[Dict[str, GSNFeature], float]:
         acc: Dict[str, List] = {}
-        for n in nbrs:
-            for f, (w, org, hop) in snap[n].items():
+        for k, n in enumerate(nbrs):
+            c = wts[k] if wts else 1.0
+            for f, (w0, org, hop) in snap[n].items():
+                w = c * w0
                 a = acc.setdefault(f, [0.0, w, org, hop])
                 a[0] += w
                 if w > a[1]:
@@ -714,10 +728,10 @@ def gsn_propagate_session(turns: List[UtteranceTurn], graph: Dict[str, Any],
                 e_nb, u_nb = children[i], ([next_same[i]] if i in next_same else [])
             else:                                 # GSN Eq. 9-10: E / U
                 e_nb, u_nb = ([parent[i]] if i in parent else []), ([prev_same[i]] if i in prev_same else [])
-            for nbrs, gates in ((e_nb, etas), (u_nb, lambdas)):
+            for nbrs, gates, wfn in ((e_nb, etas, None), (u_nb, lambdas, speaker_weight)):
                 if not nbrs:
                     continue
-                d, norm = delta(nbrs, snap)
+                d, norm = delta(nbrs, snap, [wfn(i, nb) for nb in nbrs] if wfn else None)
                 gate = gsn_sqh(norm, alpha)
                 gates.append(gate)
                 for f, (w, org, hop) in d.items():
@@ -737,6 +751,7 @@ def gsn_propagate_session(turns: List[UtteranceTurn], graph: Dict[str, Any],
             if depth >= 2:
                 multi_hop.extend((src, n, depth) for n in sorted(set(frontier)))
     mean = lambda xs: round(sum(xs) / len(xs), 4) if xs else 0.0   # noqa: E731
+    u_conf = [speaker_weight(p, c) if speaker_weight else 1.0 for c, p in prev_same.items()]
     return {
         "node_ids": ids,
         "E": sorted((p, c) for c, p in parent.items()),
@@ -750,6 +765,8 @@ def gsn_propagate_session(turns: List[UtteranceTurn], graph: Dict[str, Any],
             "parallel_sibling_branches": len(siblings),
             "multi_hop_paths_3iter": len(multi_hop),
             "mean_eta_reply_weight": mean(etas), "mean_lambda_speaker_weight": mean(lambdas),
+            "speaker_edge_weighting": "voiceprint_e2cp" if speaker_weight else "hard_0_1",
+            "mean_u_speaker_confidence": mean(u_conf) if u_conf else 1.0,
         },
     }
 
@@ -863,13 +880,16 @@ def _cos(a: Dict[str, float], b: Dict[str, float]) -> float:
 
 
 def bi_cl_disentangle_threads(turns: List[UtteranceTurn], thread_of: Optional[Dict[int, str]] = None,
-                              keyword_fn=None) -> Tuple[Dict[int, str], Dict[str, Any]]:
+                              keyword_fn=None, speaker_prob: Optional[Callable[[int, int], float]] = None,
+                              ) -> Tuple[Dict[int, str], Dict[str, Any]]:
     """Refine greedy preceding-only threads with Bi-CL's two levels: utterance vectors v_i vs. session
     prototypes p_k = mean(v_j, j in s_k), unsupervised EM (E: leave-one-out nearest prototype + local
     same-speaker continuity, M: recompute p_k) with K-estimation (merge prototypes while
     K > max(2, N_substantive // 6) or cos(p_a, p_b) >= BICL_MERGE_SIM). Micro-threads have no prototype
     besides themselves, so their turns flock to the dominant session. Noise turns keep their thread.
-    -> (refined thread_of, bi_cl_disentangle_summary). Merged sessions keep the larger thread's id."""
+    -> (refined thread_of, bi_cl_disentangle_summary). Merged sessions keep the larger thread's id.
+    speaker_prob(turn_i, turn_j) (Upgrade G voiceprint + E2CP) replaces the hard s(i) == s(j) continuity
+    indicator with a continuous same-speaker confidence; None keeps the diarizer label."""
     thread_of = dict(thread_of or {t.turn_id: t.thread_id for t in turns})
     nodes = [t for t in turns if thread_of.get(t.turn_id, t.thread_id) not in NOISE_THREADS
              and not is_agreement_only(t.text)]
@@ -877,7 +897,8 @@ def bi_cl_disentangle_threads(turns: List[UtteranceTurn], thread_of: Optional[Di
     n = len(nodes)
     k_max = max(2, n // BICL_TURNS_PER_SESSION)
     summary: Dict[str, Any] = {"substantive_turns": n, "k_upper_bound": k_max,
-                               "raw_greedy_threads": len(set(raw)), "raw_thread_ids": sorted(set(raw))}
+                               "raw_greedy_threads": len(set(raw)), "raw_thread_ids": sorted(set(raw)),
+                               "speaker_continuity_weighting": "voiceprint_e2cp" if speaker_prob else "diarizer_label"}
     if n == 0:
         summary.update({"estimated_k": 0, "refined_prototype_threads": 0, "refined_thread_ids": [],
                         "prototype_cohesion_score": 0.0, "raw_cohesion_score": 0.0, "reassigned_turns": [],
@@ -914,9 +935,14 @@ def bi_cl_disentangle_threads(turns: List[UtteranceTurn], thread_of: Optional[Di
                 tot += _cos(v, rest)
         return round(tot / n, 3)
 
+    def same_speaker(i: int, j: int) -> float:
+        if speaker_prob is not None:
+            return speaker_prob(nodes[i].turn_id, nodes[j].turn_id)
+        return 1.0 if nodes[j].speaker_id == nodes[i].speaker_id else 0.0
+
     def continuity(i: int, lab: str) -> float:
-        return sum(BICL_SPEAKER_CONT_BONUS for j in (i - 1, i + 1)
-                   if 0 <= j < n and nodes[j].speaker_id == nodes[i].speaker_id and assign[j] == lab)
+        return sum(BICL_SPEAKER_CONT_BONUS * same_speaker(i, j) for j in (i - 1, i + 1)
+                   if 0 <= j < n and assign[j] == lab)
 
     raw_cohesion = cohesion()
 
@@ -1001,6 +1027,831 @@ def bi_cl_disentangle_threads(turns: List[UtteranceTurn], thread_of: Optional[Di
                     "refined_thread_ids": sorted(set(assign)), "prototype_cohesion_score": cohesion(),
                     "raw_cohesion_score": raw_cohesion, "reassigned_turns": reassigned, "em_iterations": iters})
     return refined, summary
+
+
+# ---------- Upgrade G (v7.7): acoustic-lexical turn voiceprints + E2CP constrained diarization (stdlib only)
+#  - ECAPA-TDNN (Desplanques et al., Interspeech 2020): SE global channel rescaling, then channel-dependent
+#    attentive statistics pooling (weighted mean mu~_c, weighted std sigma~_c). Training-free analogue: the
+#    excitation is a per-channel reliability gate and the attention logits are energy / voicing / 75%-position /
+#    per-channel outlier terms instead of learned weights.
+#  - Turn-to-Diarize (Xia et al., ICASSP 2022): one embedding per turn taken around its 75% position, turns > 6 s
+#    split into Must-Linked pieces, E2CP constraint propagation (alpha = 0.4), p-percentile refinement, eigengap K.
+#  - Park & Georgiou (USC): lexical + acoustic cues; permutation-invariant (flip-aligned) sliding-window vote.
+#  - M2MeT / AliMeeting, AISHELL-4: 0.25 s boundary collar; near-field (headset) vs far-field profiling.
+# Privacy: vectors are session-local evidence for grouping the turns of THIS session. There is no enrollment DB,
+# nothing is matched against stored identities, and analyze_session() never puts raw vectors in its payload.
+VP_COLLAR_SEC = 0.25
+VP_COLLAR_MIN_TURN_SEC = 0.8      # collar only when >= 0.3 s of core speech remains
+VP_WINDOW_FRAC = (0.50, 0.90)     # analysis window of each (collar-trimmed) piece; holds its 75% anchor
+VP_ANCHOR_FRAC = 0.75
+VP_LONG_TURN_SEC = 6.0
+VP_MIN_WINDOW_SEC = 0.10          # shorter windows fall back to the whole piece
+VP_FRAME_SEC, VP_HOP_SEC = 0.025, 0.010
+VP_MAX_FRAMES = 96                # per-window frame budget (uniform stride): pure-Python DSP stays ~0.1 s / window
+VP_DSP_RATE = 8000                # frames are block-averaged to ~8 kHz: 25 ms = 200 samples -> 256-pt FFT
+VP_NFFT = 256
+VP_N_MEL, VP_N_CEPS = 20, 13
+VP_MEL_HZ = (60.0, 3800.0)
+VP_BANDS_HZ = ((60.0, 300.0), (300.0, 1000.0), (1000.0, 2000.0), (2000.0, 4000.0))
+VP_F0_HZ = (70.0, 400.0)
+VP_SILENCE_DB = 30.0              # frames this far below the window's loudest frame are silence
+VP_VOICED_CEPS = 0.12             # cepstral pitch peak above this -> voiced frame
+VP_DIM = 24
+# frame channels: c0..c12, 4 band-energy fractions, centroid (kHz), flatness, ZCR, log2(F0/150 Hz), voicing
+VP_CH_BAND, VP_CH_CENTROID, VP_CH_FLAT, VP_CH_ZCR, VP_CH_LOGF0, VP_CH_VOICING = 13, 17, 18, 19, 20, 21
+# fixed population priors for channel standardisation: per-channel mean / std over 13k active frames of the 6
+# real hotspot windows (pooled over all speakers; unsupervised, no labels, no per-speaker enrollment)
+VP_PRIOR_MEAN = [58.65, -0.246, -0.097, -1.151, -1.647, -1.176, -0.324, -0.325, -0.144, -0.178, -0.299, -0.381,
+                 -0.211, 0.088, 0.423, 0.210, 0.297, 1.364, 0.229, 0.122, 0.342, 0.140]
+VP_PRIOR_STD = [15.43, 3.149, 2.911, 2.476, 1.936, 1.403, 1.183, 1.281, 1.073, 0.952, 0.898, 0.800, 0.786,
+                0.118, 0.251, 0.164, 0.255, 0.572, 0.137, 0.126, 0.492, 0.081]
+VP_LOGSIG_PRIOR = [-0.543, -0.452, -0.494, -0.399, -0.890]   # mean log sigma~ of c1..c4, log2 F0 (same turns)
+# x_i layout (24): mu~ c1..c12 | log sigma~ c1..c4 | mu~ / log sigma~ log2 F0 | mu~ ZCR, centroid, low band,
+# top band, flatness | mu~ c0 (level, a distance cue). Per-dimension weights (applied before L2 normalisation)
+# lift the prosodic / spectral-shape dims and damp content-dominated high cepstra: on the real hotspots ZCR,
+# centroid, F0, level and c1 vary 1.8-5.8x more across adjacent speakers than within one turn's pieces, c2 / c7 /
+# c9 / c12 less (ratio <= 1). The weighting lifts the within-turn vs adjacent-speaker effect size d' 0.36 -> 0.50.
+VP_DIM_WEIGHTS = [1.5, 0.3, 0.7, 0.7, 0.7, 1.0, 0.4, 0.5, 0.3, 0.7, 0.7, 0.4, 1.0, 1.0, 0.3, 0.5,
+                  1.5, 0.7, 2.0, 1.5, 0.7, 1.5, 0.7, 0.5]
+VP_SOURCE_WAV, VP_SOURCE_PROXY_AC, VP_SOURCE_PROXY_TEXT = "wav_75pct_anchor", "proxy_acoustic", "proxy_text"
+# blend weight c of the voiceprint affinity against the diarizer label in the same-speaker probability
+VP_CONFIDENCE = {VP_SOURCE_WAV: 0.5, VP_SOURCE_PROXY_AC: 0.25, VP_SOURCE_PROXY_TEXT: 0.0}
+VP_ZH_CHARS_PER_SEC = 4.0         # proxy speech-rate / unknown-duration prior
+
+_VP_FFT_PLANS: Dict[int, Tuple[List[int], List[complex]]] = {}
+_VP_PLANS: Dict[int, Dict[str, Any]] = {}
+
+
+def _vp_fft(x: List[complex]) -> List[complex]:
+    """Iterative radix-2 FFT (len(x) a power of two)."""
+    n = len(x)
+    plan = _VP_FFT_PLANS.get(n)
+    if plan is None:
+        bits = n.bit_length() - 1
+        plan = _VP_FFT_PLANS[n] = ([int(format(i, f"0{bits}b")[::-1], 2) for i in range(n)],
+                                   [cmath.exp(-2j * math.pi * k / n) for k in range(n // 2)])
+    rev, tw = plan
+    a = [x[i] for i in rev]
+    size = 2
+    while size <= n:
+        half, step = size >> 1, n // size
+        for s in range(0, n, size):
+            for k in range(half):
+                j = s + k
+                t = tw[k * step] * a[j + half]
+                a[j + half] = a[j] - t
+                a[j] = a[j] + t
+        size <<= 1
+    return a
+
+
+def _vp_plan(sample_rate: int) -> Dict[str, Any]:
+    plan = _VP_PLANS.get(sample_rate)
+    if plan is not None:
+        return plan
+    r = max(1, int(round(sample_rate / VP_DSP_RATE)))
+    rate = sample_rate / r
+    flen = max(r * 8, int(round(VP_FRAME_SEC * sample_rate)))
+    m = min(VP_NFFT, flen // r)
+    half = VP_NFFT // 2
+    binw = rate / VP_NFFT
+    kb = lambda f: min(half, max(0, int(round(f / binw))))   # noqa: E731
+    mel = lambda f: 2595.0 * math.log10(1.0 + f / 700.0)       # noqa: E731
+    lo_hz, hi_hz = VP_MEL_HZ[0], min(VP_MEL_HZ[1], 0.475 * rate)
+    pts = [700.0 * (10 ** ((mel(lo_hz) + (mel(hi_hz) - mel(lo_hz)) * i / (VP_N_MEL + 1)) / 2595.0) - 1.0)
+           for i in range(VP_N_MEL + 2)]
+    bank = []
+    for j in range(VP_N_MEL):
+        f0, f1, f2 = pts[j], pts[j + 1], pts[j + 2]
+        fb = [(k, (k * binw - f0) / (f1 - f0) if k * binw <= f1 else (f2 - k * binw) / (f2 - f1))
+              for k in range(int(f0 / binw), min(half, int(f2 / binw) + 1) + 1)]
+        bank.append([(k, w) for k, w in fb if w > 0.0] or [(kb(f1), 1.0)])
+    plan = _VP_PLANS[sample_rate] = {
+        "r": r, "rate": rate, "flen": flen, "hop": max(1, int(round(VP_HOP_SEC * sample_rate))), "m": m,
+        "ham": [0.54 - 0.46 * math.cos(2 * math.pi * i / max(1, m - 1)) for i in range(m)], "binw": binw,
+        "mel": bank, "spec": (kb(lo_hz), kb(hi_hz)),
+        "bands": [(kb(lo), kb(min(hi, rate / 2.0)) - 1) for lo, hi in VP_BANDS_HZ],
+        "dct": [[math.cos(math.pi * k * (j + 0.5) / VP_N_MEL) * math.sqrt((1.0 if k == 0 else 2.0) / VP_N_MEL)
+                 for j in range(VP_N_MEL)] for k in range(VP_N_CEPS)],
+        "q": (int(math.ceil(rate / VP_F0_HZ[1])), min(half - 1, int(rate / VP_F0_HZ[0]))),
+    }
+    return plan
+
+
+def _vp_frame(frame, plan: Dict[str, Any]) -> Tuple[List[float], float]:
+    """One 25 ms int16 frame -> (22 raw channels, frame energy dB)."""
+    n = len(frame)
+    zc = sum(1 for a, b in zip(frame, frame[1:]) if (a >= 0) != (b >= 0)) / max(1, n - 1)
+    edb = 10.0 * math.log10(sum(v * v for v in frame) / max(1, n) + 1.0)
+    r = plan["r"]
+    y = ([sum(frame[i:i + r]) / r for i in range(0, n - r + 1, r)] if r > 1 else [float(v) for v in frame])
+    y = y[:plan["m"]]
+    mu = sum(y) / len(y)
+    ham = plan["ham"]
+    w, prev = [], 0.0
+    for i, v in enumerate(y):                       # DC removal, pre-emphasis, Hamming
+        v -= mu
+        w.append((v - 0.97 * prev) * ham[i])
+        prev = v
+    spec = _vp_fft(w + [0.0] * (VP_NFFT - len(w)))
+    half = VP_NFFT // 2
+    p = [z.real * z.real + z.imag * z.imag for z in spec[:half + 1]]
+    lo, hi = plan["spec"]
+    seg = p[lo:hi + 1]
+    tot = sum(seg) + 1e-9
+    floor = 1e-10 * max(seg) + 1e-9
+    bands = [sum(p[a:b + 1]) / tot for a, b in plan["bands"]]
+    centroid = sum((lo + i) * plan["binw"] * v for i, v in enumerate(seg)) / tot / 1000.0
+    flat = math.exp(sum(math.log(v + floor) for v in seg) / len(seg)) / (tot / len(seg))
+    mel = [math.log(sum(p[k] * wt for k, wt in fb) + 1.0) for fb in plan["mel"]]
+    ceps = [sum(c * e for c, e in zip(row, mel)) for row in plan["dct"]]
+    pmax = max(p) + 1e-9
+    lg = [0.5 * math.log(v + 1e-8 * pmax) for v in p]
+    cep = _vp_fft(lg + lg[-2:0:-1])                 # real cepstrum of the even log-magnitude spectrum
+    q0, q1 = plan["q"]
+    qpk = max(range(q0, q1 + 1), key=lambda q: cep[q].real)
+    return ceps + bands + [centroid, flat, zc, math.log2(plan["rate"] / qpk / 150.0),
+                           cep[qpk].real / VP_NFFT], edb
+
+
+def voiceprint_windows(start_sec: float, end_sec: float) -> Tuple[List[Tuple[float, float, float]], bool]:
+    """Turn-to-Diarize / AliMeeting sampling rule -> ([(win_start, win_end, anchor_75pct)], collar_applied).
+    A VP_COLLAR_SEC collar is trimmed at both turn boundaries when the turn is >= VP_COLLAR_MIN_TURN_SEC; a turn
+    longer than VP_LONG_TURN_SEC is split into ceil(dur / 6 s) equal pieces (Must-Linked downstream). Each piece is
+    analysed over VP_WINDOW_FRAC = [0.50, 0.90] of its span, which holds its 75% anchor."""
+    dur = max(0.0, end_sec - start_sec)
+    collar = dur >= VP_COLLAR_MIN_TURN_SEC
+    s, e = (start_sec + VP_COLLAR_SEC, end_sec - VP_COLLAR_SEC) if collar else (start_sec, end_sec)
+    n = int(math.ceil(dur / VP_LONG_TURN_SEC - 1e-9)) if dur > VP_LONG_TURN_SEC else 1
+    out = []
+    for i in range(n):
+        ps, pe = s + (e - s) * i / n, s + (e - s) * (i + 1) / n
+        ws, we = ps + VP_WINDOW_FRAC[0] * (pe - ps), ps + VP_WINDOW_FRAC[1] * (pe - ps)
+        if we - ws < VP_MIN_WINDOW_SEC:
+            ws, we = ps, pe
+        out.append((ws, we, ps + VP_ANCHOR_FRAC * (pe - ps)))
+    return out, collar
+
+
+def _vp_l2(x: List[float]) -> List[float]:
+    nrm = math.sqrt(sum(v * v for v in x))
+    return [v / nrm for v in x] if nrm > 1e-12 else [0.0] * len(x)
+
+
+def _vp_pool(frames: List[List[float]], edbs: List[float], times: List[float], anchor: float, wlen: float,
+             ) -> Tuple[List[float], List[float], List[bool], List[bool]]:
+    """SE channel rescaling + channel-dependent attentive statistics pooling -> (mu~, sigma~, voiced, active)."""
+    nt, nc = len(frames), len(VP_PRIOR_MEAN)
+    emax = max(edbs)
+    active = [e >= emax - VP_SILENCE_DB for e in edbs]
+    voiced = [a and f[VP_CH_VOICING] >= VP_VOICED_CEPS for a, f in zip(active, frames)]
+    h = [[(f[c] - VP_PRIOR_MEAN[c]) / VP_PRIOR_STD[c] for c in range(nc)] for f in frames]
+    act = [row for row, a in zip(h, active) if a] or h
+    z = [sum(row[c] for row in act) / len(act) for c in range(nc)]                       # squeeze
+    sd = [math.sqrt(sum((row[c] - z[c]) ** 2 for row in act) / len(act)) for c in range(nc)]
+    gate = [0.5 + 1.0 / (1.0 + math.exp(-2.0 * (abs(z[c]) / (sd[c] + 0.5) - 0.5))) for c in range(nc)]  # excite
+    h = [[row[c] * gate[c] for c in range(nc)] for row in h]
+    centre = [z[c] * gate[c] for c in range(nc)]
+    emed = sorted(edbs)[nt // 2]
+    sig = max(1e-3, 0.5 * wlen)
+    base = [max(-2.0, min(1.0, (e - emed) / 6.0)) + (0.5 if v else 0.0) - 0.5 * ((t - anchor) / sig) ** 2
+            - (0.0 if a else 4.0) for e, v, t, a in zip(edbs, voiced, times, active)]
+    mu: List[float] = []
+    sg: List[float] = []
+    for c in range(nc):
+        idx = [i for i in range(nt) if voiced[i]] if c == VP_CH_LOGF0 else list(range(nt))
+        if not idx:                                   # no voiced frame: F0 stays at the population prior
+            mu.append(0.0)
+            sg.append(math.exp(VP_LOGSIG_PRIOR[4]))
+            continue
+        logits = [base[i] - 0.5 * min(4.0, abs(h[i][c] - centre[c])) for i in idx]   # channel-dependent
+        top = max(logits)
+        ws = [math.exp(v - top) for v in logits]
+        tot = sum(ws)
+        m = sum(w * h[i][c] for w, i in zip(ws, idx)) / tot
+        var = sum(w * h[i][c] ** 2 for w, i in zip(ws, idx)) / tot - m * m
+        mu.append(m)
+        sg.append(math.sqrt(max(var, 1e-6)))
+    return mu, sg, voiced, active
+
+
+def _vp_embedding(mu: List[float], sg: List[float]) -> List[float]:
+    x = (mu[1:13] + [math.log(sg[c]) - VP_LOGSIG_PRIOR[c - 1] for c in (1, 2, 3, 4)]
+         + [mu[VP_CH_LOGF0], math.log(sg[VP_CH_LOGF0]) - VP_LOGSIG_PRIOR[4], mu[VP_CH_ZCR], mu[VP_CH_CENTROID],
+            mu[VP_CH_BAND], mu[VP_CH_BAND + 3], mu[VP_CH_FLAT], mu[0]])
+    return _vp_l2([v * w for v, w in zip(x, VP_DIM_WEIGHTS)])
+
+
+def _vp_sigmoid(z: float) -> float:
+    return 1.0 / (1.0 + math.exp(-max(-30.0, min(30.0, z))))
+
+
+def _vp_near_field(edbs: List[float], frames: List[List[float]], active: List[bool]) -> Tuple[float, Dict]:
+    """Near-field (headset / closest talker) vs far-field (1-3 m interlocutor): level, modulation depth (reverb
+    fills the energy valleys), top-band share (air / room absorb highs) and spectral flatness (diffuse noise)."""
+    act = [i for i, a in enumerate(active) if a] or list(range(len(edbs)))
+    level = 10.0 * math.log10(sum(10 ** (edbs[i] / 10.0) for i in act) / len(act)) - 90.31   # dBFS
+    srt = sorted(edbs)
+    mod = srt[int(0.9 * (len(srt) - 1))] - srt[int(0.1 * (len(srt) - 1))]
+    top = sum(frames[i][VP_CH_BAND + 3] for i in act) / len(act)
+    flat = sum(frames[i][VP_CH_FLAT] for i in act) / len(act)
+    # recording gain varies ~25 dB between devices, so level is a mild term; the gain-invariant cues carry it
+    score = _vp_sigmoid(0.06 * (level + 45.0) + 0.12 * (mod - 15.0) + 3.0 * (top - 0.30) - 6.0 * (flat - 0.25))
+    return score, {"level_dbfs": round(level, 1), "modulation_db": round(mod, 1), "top_band": round(top, 3),
+                   "flatness": round(flat, 3)}
+
+
+def _vp_proxy(rms_energy: float, zcr_pitch: float, speech_rate: float, duration: float) -> List[float]:
+    """Deterministic acoustic-prosodic proxy x_i for JSON-only turns (no PCM): log RMS -> level slot, ZCR ->
+    ZCR / F0 / c1-tilt slots, speech rate and log duration -> the c1/c2 dynamics slots."""
+    x = [0.0] * VP_DIM
+    if rms_energy > 0 and zcr_pitch > 0:
+        zz = (zcr_pitch - 0.08) / 0.04
+        x[0], x[16], x[18], x[23] = -0.4 * zz, 0.6 * zz, zz, 0.5 * (math.log(rms_energy + 1.0) - math.log(1500.0))
+    x[12] = (speech_rate - VP_ZH_CHARS_PER_SEC) / 2.0
+    x[13] = math.log(max(duration, 0.1) / 3.0)
+    return _vp_l2(x)
+
+
+def extract_turn_voiceprint(pcm=None, sample_rate: int = 16000, start_sec: float = 0.0,
+                            end_sec: Optional[float] = None, offset_sec: float = 0.0, rms_energy: float = 0.0,
+                            zcr_pitch: float = 0.0, text: str = "", duration: Optional[float] = None) -> Dict[str, Any]:
+    """Turn-level voiceprint x_i (VP_DIM, L2-normalised) of the turn [start_sec, end_sec).
+
+    pcm: int16 mono samples whose first sample sits at offset_sec (e.g. a 60 s hotspot slice with absolute turn
+    times), or None. With PCM: collar + 75%-anchor windows (voiceprint_windows), 25 ms / 10 ms frames, SE +
+    attentive statistics pooling per window; a > 6 s turn yields one sub-vector per piece (sub_voiceprints, to be
+    Must-Linked) and x_i is their normalised mean. rms_energy / zcr_pitch are then measured on the anchor windows.
+    Without PCM: a deterministic proxy from (rms_energy, zcr_pitch, speech rate, duration)."""
+    end_sec = (offset_sec + len(pcm) / float(sample_rate)) if (end_sec is None and pcm is not None) else end_sec
+    dur = duration if duration is not None else max(0.0, (end_sec or start_sec) - start_sec)
+    if not dur:
+        dur = max(1.0, len(_norm(text)) / VP_ZH_CHARS_PER_SEC)
+    plan = _vp_plan(sample_rate) if pcm is not None else None
+    if pcm is None or len(pcm) < plan["flen"]:
+        rate = len(_norm(text)) / max(dur, 0.1)
+        src = VP_SOURCE_PROXY_AC if rms_energy > 0 and zcr_pitch > 0 else VP_SOURCE_PROXY_TEXT
+        x = _vp_proxy(rms_energy, zcr_pitch, rate, dur)
+        nf = round(_vp_sigmoid((20.0 * math.log10(rms_energy / 32768.0) + 30.0) / 5.0), 3) if rms_energy > 0 else -1.0
+        return {"voiceprint": [round(v, 5) for v in x], "sub_voiceprints": [[round(v, 5) for v in x]],
+                "source": src, "confidence": VP_CONFIDENCE[src], "near_field_score": nf,
+                "rms_energy": rms_energy, "zcr_pitch": zcr_pitch, "windows": [], "collar_applied": False,
+                "frames": 0, "f0_hz": 0.0, "voiced_ratio": 0.0}
+    flen, hop = plan["flen"], plan["hop"]
+    last = len(pcm) - flen
+    wins, collar = voiceprint_windows(start_sec, end_sec)
+    subs: List[List[float]] = []
+    all_f: List[List[float]] = []
+    all_e: List[float] = []
+    all_a: List[bool] = []
+    all_v: List[bool] = []
+    sq, zc, cnt = 0.0, 0, 0
+    for ws, we, anchor in wins:
+        a = max(0, min(last, int(round((ws - offset_sec) * sample_rate))))
+        b = max(a, min(last, int(round((we - offset_sec) * sample_rate)) - flen))
+        pos = list(range(a, b + 1, hop))
+        if len(pos) > VP_MAX_FRAMES:
+            pos = [pos[int(round(i * (len(pos) - 1) / (VP_MAX_FRAMES - 1)))] for i in range(VP_MAX_FRAMES)]
+        frames, edbs, times = [], [], []
+        for p0 in pos:
+            fr = pcm[p0:p0 + flen]
+            f, e = _vp_frame(fr, plan)
+            frames.append(f)
+            edbs.append(e)
+            times.append(offset_sec + (p0 + flen / 2.0) / sample_rate)
+        seg = pcm[a:max(a + 1, min(len(pcm), int(round((we - offset_sec) * sample_rate))))]
+        sq += sum(v * v for v in seg)
+        zc += sum(1 for u, v in zip(seg, seg[1:]) if (u >= 0) != (v >= 0))
+        cnt += len(seg)
+        mu, sg, voiced, active = _vp_pool(frames, edbs, times, anchor, we - ws)
+        subs.append(_vp_embedding(mu, sg))
+        all_f += frames
+        all_e += edbs
+        all_a += active
+        all_v += voiced
+    x = _vp_l2([sum(col) for col in zip(*subs)])
+    nf, nf_feats = _vp_near_field(all_e, all_f, all_a)
+    f0s = sorted(150.0 * 2 ** f[VP_CH_LOGF0] for f, v in zip(all_f, all_v) if v)
+    return {"voiceprint": [round(v, 5) for v in x], "sub_voiceprints": [[round(v, 5) for v in s] for s in subs],
+            "source": VP_SOURCE_WAV, "confidence": VP_CONFIDENCE[VP_SOURCE_WAV], "near_field_score": round(nf, 3),
+            "near_field_features": nf_feats, "rms_energy": round(math.sqrt(sq / max(1, cnt)), 1),
+            "zcr_pitch": round(zc / max(1, cnt - 1), 4),
+            "windows": [[round(ws, 3), round(we, 3), round(an, 3)] for ws, we, an in wins],
+            "collar_applied": collar, "frames": len(all_f),
+            "f0_hz": round(f0s[len(f0s) // 2], 1) if f0s else 0.0,
+            "voiced_ratio": round(sum(all_v) / max(1, len(all_v)), 3)}
+
+
+# --- constrained diarization: lexical Must/Cannot-Link + E2CP + spectral clustering + flip-aligned window vote
+E2CP_ALPHA = 0.4
+VP_P_PERCENTILE = 0.5            # row-wise p-percentile soft threshold (entries below x 0.01)
+VP_SOFT_THRESHOLD = 0.01
+VP_MAX_SPEAKERS = 8
+VP_PAIR_SAME_AFFINITY = 0.75     # < VP_MIN_NODES_MULTI-node blocks: single-link same speaker iff A^ >= this
+VP_MIN_NODES_MULTI = 4           # blocks this large with >= 2 diarizer labels search K >= 2
+VP_BLOCK_NODES = 48              # E2CP / eigen work is O(N^3) pure Python: long recordings run in chronological blocks
+VP_VOTE_WIN, VP_VOTE_HOP = 6, 3
+VP_LATCH_GAP_SEC = 1.5           # dangling-clause latch (= the analyzer's same-speaker merge gap)
+VP_CONTINUATION_GAP_SEC = 2.0    # connective-opened continuation across a backchannel
+VP_VOCATIVE_LOOKBACK_SEC = 60.0
+VP_QUESTION_TAILS = ("嗎", "呢")
+VP_QUESTION_CUES = ("對不對", "是不是", "有沒有", "要不要", "好不好", "可不可以", "會不會", "能不能", "可以嗎")
+# yes/no-type openers: someone else answering (a self-answer opens with 因為 / 就是 / 其實, which are excluded)
+VP_ANSWER_OPENERS = ("沒有", "不是", "不會", "不用", "不行", "不要", "沒錯", "可以", "應該", "對", "是", "有", "會",
+                     "嗯", "好")
+VP_RESPONSE_OPENERS = VP_ANSWER_OPENERS + ("OK", "ok", "Ok", "了解", "我懂", "我知道")
+# MIntRec first pair parts that project a reply from someone else (request / proposal / advice / complaint)
+VP_FIRST_PAIR_FINE = ("Arrange", "Advise", "Ask_for_help", "Prevent", "Complain")
+VP_CONTINUATION_OPENERS = ("然後", "所以", "而且", "還有", "再來", "接著", "另外", "包括", "就是說", "或者", "以及")
+# first-person self-reference per role: topical role words (派案, 安撫) are echoed across speakers, these are not
+VP_SELF_REFERENCE_CUES: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+    (ROLE_DIRECTOR, ("我是主任", "我當主任")),
+    (ROLE_SUPERVISOR, ("我們督導", "我是督導", "我是居督", "我們居督", "我當督導")),
+    (ROLE_RESEARCHER, ("我們後端", "我們的系統", "我們團隊", "我們研究", "我們學生")),
+    (ROLE_CAREGIVER_LTC, ("我的夥伴", "我是照服員", "我是居服員", "我去案家", "我的個案")),
+)
+VP_DANGLING_TAILS = ("的", "跟", "和", "就", "在", "說", "然後", "所以", "因為", "但是", "可是", "如果", "那個", "這個")
+_VP_PUNCT = "，。,.!！?？、~～…:：;； "
+
+
+def _vp_core(text: str) -> str:
+    return _norm(text).strip(_VP_PUNCT)
+
+
+def _vp_is_question(text: str) -> bool:
+    t = _norm(text).rstrip("。.!！~～… ")
+    core = _vp_core(text)
+    return bool(core) and (t.endswith(("?", "？")) or core.endswith(VP_QUESTION_TAILS)
+                           or any(c in core for c in VP_QUESTION_CUES))
+
+
+def _vp_is_answer(text: str, openers: Tuple[str, ...] = VP_ANSWER_OPENERS) -> bool:
+    core = _vp_core(text)
+    return bool(core) and core.startswith(openers) and not _vp_is_question(text)
+
+
+def turn_end_times(turns: List[UtteranceTurn]) -> Dict[int, float]:
+    """end_time when known, else the next turn's start, else start + text length at VP_ZH_CHARS_PER_SEC."""
+    out = {}
+    for i, t in enumerate(turns):
+        est = t.timestamp + min(15.0, max(1.0, len(_norm(t.text)) / VP_ZH_CHARS_PER_SEC))
+        if t.end_time > t.timestamp:
+            out[t.turn_id] = t.end_time
+        elif i + 1 < len(turns) and turns[i + 1].timestamp > t.timestamp:
+            out[t.turn_id] = min(turns[i + 1].timestamp, est + 5.0)
+        else:
+            out[t.turn_id] = est
+    return out
+
+
+def voiceprint_lexical_constraints(turns: List[UtteranceTurn], ends: Optional[Dict[int, float]] = None,
+                                   graph: Optional[Dict[str, Any]] = None,
+                                   speaker_roles: Optional[Dict[str, str]] = None) -> List[Tuple[int, int, int, str]]:
+    """Turn-level pairwise constraints Z_ij from lexical turn-taking (GIFT / Bi-CL signals) -> [(i, j, +-1, reason)].
+    Cannot-Link (-1): a question answered by a yes/no-type reply (adjacent or GIFT reply-to: an <st> QA pair), an
+    adjacent request / proposal / advice / complaint (MIntRec first pair part) met by a response token (可以 / 好 /
+    沒問題 / OK ...), a vocative addressed to a role held by the previous holder's turn, a floor handoff (請主任...)
+    to the next turn. Must-Link (+1): a same-label discourse latch (connective-opened continuation across
+    backchannels, or a dangling clause latched within VP_LATCH_GAP_SEC) and lexical self-consistency (same label
+    repeating one role's first-person self-reference, VP_SELF_REFERENCE_CUES; chained to the previous such turn)."""
+    ends = ends or turn_end_times(turns)
+    roles = speaker_roles or {}
+    seq = sorted(turns, key=lambda t: (t.timestamp, t.turn_id))
+    by_id = {t.turn_id: t for t in seq}
+    out: List[Tuple[int, int, int, str]] = []
+
+    def add(a: UtteranceTurn, b: UtteranceTurn, z: int, why: str) -> None:
+        if a.turn_id != b.turn_id:
+            out.append((min(a.turn_id, b.turn_id), max(a.turn_id, b.turn_id), z, why))
+
+    for prev, cur in zip(seq, seq[1:]):
+        if _vp_is_question(prev.text) and _vp_is_answer(cur.text):
+            add(prev, cur, -1, "qa_turn_taking")
+        elif (classify_mintrec_taxonomy(prev.text)["fine"] in VP_FIRST_PAIR_FINE
+              and _vp_is_answer(cur.text, VP_RESPONSE_OPENERS)):
+            add(prev, cur, -1, "adjacency_pair_response")
+    for child, parent in ((graph or {}).get("reply_to") or {}).items():
+        if child in by_id and parent in by_id and _vp_is_question(by_id[parent].text) and _vp_is_answer(by_id[child].text):
+            add(by_id[parent], by_id[child], -1, "qa_turn_taking")
+    for k, cur in enumerate(seq):
+        txt = _norm(cur.text)
+        voc = next((role for role, cues in VOCATIVE_ROLE_CUES if any(c in txt for c in cues)), None)
+        if voc and voc != roles.get(cur.speaker_id):
+            prev = next((p for p in reversed(seq[:k]) if roles.get(p.speaker_id) == voc
+                         and cur.timestamp - p.timestamp <= VP_VOCATIVE_LOOKBACK_SEC), None)
+            if prev is not None:
+                add(prev, cur, -1, "vocative_addressing")
+        if k + 1 < len(seq) and any(c in _vp_core(cur.text)[-12:] for c in DIRECTOR_HANDOFF_CUES):
+            add(cur, seq[k + 1], -1, "floor_handoff")
+    for k, cur in enumerate(seq):
+        j = k - 1
+        while j >= 0 and seq[j].speaker_id != cur.speaker_id and is_agreement_only(seq[j].text):
+            j -= 1
+        if j < 0 or seq[j].speaker_id != cur.speaker_id:
+            continue
+        prev = seq[j]
+        gap = cur.timestamp - ends[prev.turn_id]
+        opener = _vp_core(cur.text).startswith(VP_CONTINUATION_OPENERS)
+        dangling = (_norm(prev.text)[-1:] not in _VP_PUNCT and _vp_core(prev.text).endswith(VP_DANGLING_TAILS))
+        if (opener and gap <= VP_CONTINUATION_GAP_SEC) or (dangling and gap <= VP_LATCH_GAP_SEC):
+            add(prev, cur, +1, "discourse_latch")
+    last: Dict[Tuple[str, str], UtteranceTurn] = {}
+    for cur in seq:
+        txt = _norm(cur.text)
+        for role, cues in VP_SELF_REFERENCE_CUES:
+            if any(c in txt for c in cues):
+                key = (cur.speaker_id, role)
+                if key in last:
+                    add(last[key], cur, +1, "lexical_self_consistency")
+                last[key] = cur
+    return out
+
+
+def _vp_cos(a: List[float], b: List[float]) -> float:
+    na = math.sqrt(sum(v * v for v in a))
+    nb = math.sqrt(sum(v * v for v in b))
+    return sum(u * v for u, v in zip(a, b)) / (na * nb) if na > 1e-12 and nb > 1e-12 else 0.0
+
+
+def _vp_inverse(m: List[List[float]]) -> List[List[float]]:
+    """Gauss-Jordan inverse with partial pivoting."""
+    n = len(m)
+    a = [row[:] + [1.0 if i == j else 0.0 for j in range(n)] for i, row in enumerate(m)]
+    for c in range(n):
+        p = max(range(c, n), key=lambda r: abs(a[r][c]))
+        a[c], a[p] = a[p], a[c]
+        inv = 1.0 / a[c][c]
+        rc = [v * inv for v in a[c]]
+        a[c] = rc
+        for r in range(n):
+            f = a[r][c]
+            if r != c and f:
+                a[r] = [u - f * v for u, v in zip(a[r], rc)]
+    return [row[n:] for row in a]
+
+
+def _vp_matmul(a: List[List[float]], b: List[List[float]]) -> List[List[float]]:
+    bt = list(zip(*b))
+    return [[sum(u * v for u, v in zip(row, col)) for col in bt] for row in a]
+
+
+def _vp_sym_normalize(w: List[List[float]]) -> List[List[float]]:
+    dis = [1.0 / math.sqrt(s) if s > 1e-12 else 0.0 for s in (sum(r) for r in w)]
+    return [[dis[i] * v * dis[j] for j, v in enumerate(row)] for i, row in enumerate(w)]
+
+
+def e2cp_adjust_affinity(a: List[List[float]], z: List[List[float]], alpha: float = E2CP_ALPHA,
+                         ) -> Tuple[List[List[float]], List[List[float]]]:
+    """E2CP (Lu & Ip; Turn-to-Diarize Sec. 3.3) -> (A^, Q*). Closed form of the vertical-then-horizontal
+    propagation F_v = aL F_v + (1-a)Z, F_h = a F_h L + (1-a)F_v over L = D^-1/2 A D^-1/2 (zero diagonal):
+    Q* = (1-a)^2 (I - aL)^-1 Z (I - aL)^-1, clipped to [-1, 1]. Then A^_ij = 1 - (1 - Q*_ij)(1 - A_ij) when
+    Q*_ij >= 0, else (1 + Q*_ij) A_ij. With no constraints A^ = A."""
+    n = len(a)
+    if not any(v for row in z for v in row):
+        return [row[:] for row in a], [[0.0] * n for _ in range(n)]
+    lb = _vp_sym_normalize([[0.0 if i == j else a[i][j] for j in range(n)] for i in range(n)])
+    m = _vp_inverse([[(1.0 if i == j else 0.0) - alpha * lb[i][j] for j in range(n)] for i in range(n)])
+    mz = [[0.0] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(n):
+            if z[i][j]:
+                for r in range(n):
+                    mz[r][j] += m[r][i] * z[i][j]
+    f = _vp_matmul(mz, m)
+    k = (1.0 - alpha) ** 2
+    q = [[max(-1.0, min(1.0, k * v)) for v in row] for row in f]
+    ah = [[1.0 if i == j else (1.0 - (1.0 - q[i][j]) * (1.0 - a[i][j]) if q[i][j] >= 0
+                               else (1.0 + q[i][j]) * a[i][j]) for j in range(n)] for i in range(n)]
+    return ah, q
+
+
+def _vp_refine(ah: List[List[float]], p: float = VP_P_PERCENTILE, soft: float = VP_SOFT_THRESHOLD) -> List[List[float]]:
+    """Row-wise p-percentile soft threshold, average symmetrisation, diagonal = row max (Wang et al. refinement)."""
+    n = len(ah)
+    x = [row[:] for row in ah]
+    for i in range(n):
+        off = sorted(x[i][j] for j in range(n) if j != i)
+        if off:
+            thr = off[int(p * (len(off) - 1))]
+            x[i] = [v * soft if j != i and v < thr else v for j, v in enumerate(x[i])]
+    y = [[0.5 * (x[i][j] + x[j][i]) for j in range(n)] for i in range(n)]
+    for i in range(n):
+        y[i][i] = max((y[i][j] for j in range(n) if j != i), default=1.0)
+    return y
+
+
+def _vp_eigh(s: List[List[float]], sweeps: int = 30) -> Tuple[List[float], List[List[float]]]:
+    """Cyclic Jacobi eigen-decomposition of a symmetric matrix -> (eigenvalues desc, eigenvectors as rows)."""
+    n = len(s)
+    a = [row[:] for row in s]
+    v = [[1.0 if i == j else 0.0 for j in range(n)] for i in range(n)]
+    for _ in range(sweeps):
+        if sum(a[i][j] ** 2 for i in range(n) for j in range(i + 1, n)) < 1e-18:
+            break
+        for p in range(n - 1):
+            for q in range(p + 1, n):
+                apq = a[p][q]
+                if abs(apq) < 1e-15:
+                    continue
+                theta = (a[q][q] - a[p][p]) / (2.0 * apq)
+                t = (1.0 if theta >= 0 else -1.0) / (abs(theta) + math.sqrt(theta * theta + 1.0))
+                c = 1.0 / math.sqrt(t * t + 1.0)
+                sn = t * c
+                for k in range(n):
+                    akp, akq = a[k][p], a[k][q]
+                    a[k][p], a[k][q] = c * akp - sn * akq, sn * akp + c * akq
+                for k in range(n):
+                    apk, aqk = a[p][k], a[q][k]
+                    a[p][k], a[q][k] = c * apk - sn * aqk, sn * apk + c * aqk
+                for k in range(n):
+                    vkp, vkq = v[k][p], v[k][q]
+                    v[k][p], v[k][q] = c * vkp - sn * vkq, sn * vkp + c * vkq
+    order = sorted(range(n), key=lambda i: -a[i][i])
+    return [a[i][i] for i in order], [[v[k][i] for k in range(n)] for i in order]
+
+
+def _vp_kmeans(u: List[List[float]], k: int, iters: int = 25) -> List[int]:
+    """Deterministic k-means (farthest-point init from row 0)."""
+    n = len(u)
+    d2 = lambda x, y: sum((p - q) ** 2 for p, q in zip(x, y))   # noqa: E731
+    cents = [u[0]]
+    while len(cents) < min(k, n):
+        cents.append(u[max(range(n), key=lambda i: (min(d2(u[i], c) for c in cents), -i))])
+    lab: List[int] = []
+    for _ in range(iters):
+        new = [min(range(len(cents)), key=lambda c: (d2(u[i], cents[c]), c)) for i in range(n)]
+        if new == lab:
+            break
+        lab = new
+        for c in range(len(cents)):
+            mem = [u[i] for i in range(n) if lab[i] == c]
+            if mem:
+                cents[c] = [sum(col) / len(mem) for col in zip(*mem)]
+    return lab
+
+
+def _vp_rownorm(rows: List[List[float]]) -> List[List[float]]:
+    return [_vp_l2(r) if any(r) else r for r in rows]
+
+
+def _vp_spectral(y: List[List[float]], ah: List[List[float]], min_k: int = 1,
+                 max_k: int = VP_MAX_SPEAKERS) -> Tuple[List[int], int, List[float]]:
+    """Eigengap speaker count over the normalised refined affinity + NJW spectral k-means -> (labels, K, eigs).
+    The gap is searched over [min_k, max_k] (spectralcluster's min_clusters / max_clusters)."""
+    n = len(y)
+    if n < VP_MIN_NODES_MULTI:   # too few nodes for an eigengap (A = (1 + cos) / 2 puts unrelated pairs at 0.5):
+        root = list(range(n))     # single-link components of A^ >= VP_PAIR_SAME_AFFINITY
+        find = lambda i: i if root[i] == i else find(root[i])   # noqa: E731
+        for i in range(n):
+            for j in range(i + 1, n):
+                if ah[i][j] >= VP_PAIR_SAME_AFFINITY:
+                    root[find(j)] = find(i)
+        ids: Dict[int, int] = {}
+        lab = [ids.setdefault(find(i), len(ids)) for i in range(n)]
+        return lab, len(ids), []
+    evals, evecs = _vp_eigh(_vp_sym_normalize(y))
+    kmax = max(1, min(max_k, VP_MAX_SPEAKERS, n - 1))
+    k = max(range(min(min_k, kmax), kmax + 1), key=lambda kk: (evals[kk - 1] - evals[kk], -kk))
+    if k == 1:
+        return [0] * n, 1, evals
+    emb = _vp_rownorm([[evecs[c][i] for c in range(k)] for i in range(n)])
+    return _vp_kmeans(emb, k), k, evals
+
+
+def _vp_window_vote(y: List[List[float]], glob: List[int]) -> Tuple[List[int], int]:
+    """USC flip-aligned sliding-window majority vote: each window re-clusters its nodes locally (labels are
+    window-relative), is aligned to the global labels by the best permutation, and votes; global labels vote once."""
+    n = len(y)
+    votes = [{g: 1.0} for g in glob]
+    if n > VP_VOTE_WIN:
+        starts = list(range(0, n - VP_VOTE_WIN + 1, VP_VOTE_HOP))
+        if starts[-1] != n - VP_VOTE_WIN:
+            starts.append(n - VP_VOTE_WIN)
+        for s in starts:
+            idx = list(range(s, s + VP_VOTE_WIN))
+            present = sorted({glob[i] for i in idx})
+            if len(present) < 2:
+                continue
+            local = _vp_kmeans(_vp_rownorm([[y[a][b] for b in idx] for a in idx]), len(present))
+            k = max(local) + 1
+            best = max(itertools.permutations(present, k),
+                       key=lambda perm: sum(perm[local[t]] == glob[i] for t, i in enumerate(idx)))
+            for t, i in enumerate(idx):
+                votes[i][best[local[t]]] = votes[i].get(best[local[t]], 0.0) + 1.0
+    final = [max(v, key=lambda lab: (v[lab], lab == glob[i], -lab)) for i, v in enumerate(votes)]
+    return final, sum(1 for f, g in zip(final, glob) if f != g)
+
+
+def _vp_turn_record(t: UtteranceTurn, end: float) -> Dict[str, Any]:
+    if t.voiceprint:
+        src = t.voiceprint_source or VP_SOURCE_WAV
+        subs = t.voiceprint_subvectors or [t.voiceprint]
+        return {"voiceprint": list(t.voiceprint), "sub_voiceprints": [list(s) for s in subs], "source": src,
+                "confidence": VP_CONFIDENCE.get(src, VP_CONFIDENCE[VP_SOURCE_WAV]),
+                "near_field_score": t.near_field_score}
+    return extract_turn_voiceprint(None, start_sec=t.timestamp, end_sec=end, rms_energy=t.rms_energy,
+                                   zcr_pitch=t.zcr_pitch, text=t.text)
+
+
+def constrained_voiceprint_diarize(turns: List[UtteranceTurn], graph: Optional[Dict[str, Any]] = None,
+                                   speaker_roles: Optional[Dict[str, str]] = None,
+                                   alpha: float = E2CP_ALPHA) -> Dict[str, Any]:
+    """Acoustic-lexical constrained diarization over turn voiceprints (Upgrade G).
+
+    Nodes are turn pieces (a > 6 s turn contributes one node per sub-window, chained by Must-Links). Raw affinity
+    A_ij = (1 + cos(x_i, x_j)) / 2; lexical constraints Z (voiceprint_lexical_constraints) are propagated by
+    E2CP into A^ (e2cp_adjust_affinity); p-percentile refinement + eigengap + spectral k-means + flip-aligned
+    window vote give refined clusters, mapped onto the diarizer's speaker_N labels by overlap. Turns without a
+    voiceprint get the JSON-only proxy. -> {"summary", "same_speaker_prob", "affinity_raw", "affinity_e2cp",
+    "refined_speaker", "turn_records"}; same_speaker_prob(i, j) = c A^_ij + (1 - c)[s_i == s_j] with c the
+    smaller voiceprint confidence of the two turns (0 for text-only proxies -> exactly the diarizer label)."""
+    seq = sorted(turns, key=lambda t: (t.timestamp, t.turn_id))
+    ends = turn_end_times(seq)
+    by_id = {t.turn_id: t for t in seq}
+    rec = {t.turn_id: _vp_turn_record(t, ends[t.turn_id]) for t in seq}
+    nodes: List[Tuple[int, List[float]]] = []
+    nodes_of: Dict[int, List[int]] = {}
+    for t in seq:
+        for s in rec[t.turn_id]["sub_voiceprints"]:
+            nodes_of.setdefault(t.turn_id, []).append(len(nodes))
+            nodes.append((t.turn_id, s))
+    pairs: Dict[Tuple[int, int], Tuple[int, str]] = {}
+    conflicts = set()
+    for tid, ns in nodes_of.items():
+        for a, b in zip(ns, ns[1:]):
+            pairs[(a, b)] = (1, "long_turn_split")
+    for i, j, z, why in voiceprint_lexical_constraints(seq, ends, graph, speaker_roles):
+        key = (nodes_of[i][-1], nodes_of[j][0]) if by_id[i].timestamp <= by_id[j].timestamp else \
+              (nodes_of[j][-1], nodes_of[i][0])
+        key = (min(key), max(key))
+        if key in pairs and pairs[key][0] != z:
+            conflicts.add(key)
+        elif key not in pairs:
+            pairs[key] = (z, why)
+    for key in conflicts:
+        pairs.pop(key, None)
+    n = len(nodes)
+    blocks = [list(range(s, min(n, s + VP_BLOCK_NODES))) for s in range(0, n, VP_BLOCK_NODES)]
+    block_of = {i: bi for bi, blk in enumerate(blocks) for i in blk}
+    a_raw: Dict[Tuple[int, int], float] = {}
+    a_hat: Dict[Tuple[int, int], float] = {}
+    node_label: Dict[int, str] = {}
+    est_k, flips, dropped = [], 0, 0
+    for bi, blk in enumerate(blocks):
+        pos = {g: k for k, g in enumerate(blk)}
+        m = len(blk)
+        a = [[1.0 if p == q else 0.5 * (1.0 + _vp_cos(nodes[blk[p]][1], nodes[blk[q]][1])) for q in range(m)]
+             for p in range(m)]
+        z = [[0.0] * m for _ in range(m)]
+        for (u, v), (val, _) in pairs.items():
+            if u in pos and v in pos:
+                z[pos[u]][pos[v]] = z[pos[v]][pos[u]] = float(val)
+            elif block_of[u] == bi:
+                dropped += 1
+        ah, _ = e2cp_adjust_affinity(a, z, alpha)
+        for p in range(m):
+            for q in range(p + 1, m):
+                a_raw[(blk[p], blk[q])], a_hat[(blk[p], blk[q])] = a[p][q], ah[p][q]
+        y = _vp_refine(ah)
+        # a multi-party block (>= 2 diarizer labels, >= VP_MIN_NODES_MULTI nodes) searches K >= 2
+        n_lab = len({by_id[nodes[g][0]].speaker_id for g in blk})
+        glob, k, _ = _vp_spectral(y, ah, 2 if n_lab >= 2 and m >= VP_MIN_NODES_MULTI else 1, n_lab + 1)
+        final, f = _vp_window_vote(y, glob)
+        est_k.append(len(set(final)))
+        flips += f
+        diar = [by_id[nodes[g][0]].speaker_id for g in blk]
+        overlap: Dict[Tuple[int, str], int] = {}
+        for c, sp in zip(final, diar):
+            overlap[(c, sp)] = overlap.get((c, sp), 0) + 1
+        mapping: Dict[int, str] = {}
+        for (c, sp), _ in sorted(overlap.items(), key=lambda kv: (-kv[1], kv[0][0], kv[0][1])):
+            if c not in mapping and sp not in mapping.values():
+                mapping[c] = sp
+        for c in sorted(set(final) - set(mapping)):
+            mapping[c] = f"speaker_vp{bi + 1}_{c + 1}"
+        for g, c in zip(blk, final):
+            node_label[g] = mapping[c]
+
+    def turn_aff(table: Dict[Tuple[int, int], float], i: int, j: int) -> Optional[float]:
+        vals = [table[(min(p, q), max(p, q))] for p in nodes_of[i] for q in nodes_of[j]
+                if (min(p, q), max(p, q)) in table]
+        return sum(vals) / len(vals) if vals else None
+
+    cache: Dict[Tuple[int, int], float] = {}
+
+    def affinity_raw(i: int, j: int) -> float:
+        v = turn_aff(a_raw, i, j)
+        return v if v is not None else 0.5 * (1.0 + _vp_cos(rec[i]["voiceprint"], rec[j]["voiceprint"]))
+
+    def affinity_e2cp(i: int, j: int) -> float:
+        v = turn_aff(a_hat, i, j)
+        return v if v is not None else affinity_raw(i, j)
+
+    def same_speaker_prob(i: int, j: int) -> float:
+        if i == j:
+            return 1.0
+        key = (min(i, j), max(i, j))
+        if key not in cache:
+            c = min(rec[i]["confidence"], rec[j]["confidence"]) if i in rec and j in rec else 0.0
+            same = 1.0 if by_id[i].speaker_id == by_id[j].speaker_id else 0.0
+            cache[key] = same if c <= 0.0 else round(c * affinity_e2cp(i, j) + (1.0 - c) * same, 4)
+        return cache[key]
+
+    refined: Dict[int, str] = {}
+    for tid, ns in nodes_of.items():
+        labs = [node_label[g] for g in ns]
+        refined[tid] = max(labs, key=lambda lab: (labs.count(lab), lab == by_id[tid].speaker_id))
+    ids = [t.turn_id for t in seq]
+    intra = [(i, j) for k, i in enumerate(ids) for j in ids[k + 1:] if by_id[i].speaker_id == by_id[j].speaker_id
+             and turn_aff(a_raw, i, j) is not None]
+    inter = [(i, j) for k, i in enumerate(ids) for j in ids[k + 1:] if by_id[i].speaker_id != by_id[j].speaker_id
+             and turn_aff(a_raw, i, j) is not None]
+    mean = lambda xs: round(sum(xs) / len(xs), 4) if xs else None   # noqa: E731
+    srcs = [rec[i]["source"] for i in ids]
+    n_wav = srcs.count(VP_SOURCE_WAV)
+    acoustic = [i for i in ids if rec[i]["confidence"] > 0.0]
+    nf: Dict[str, List[float]] = {}
+    for i in ids:
+        if rec[i]["near_field_score"] is not None and rec[i]["near_field_score"] >= 0:
+            nf.setdefault(by_id[i].speaker_id, []).append(rec[i]["near_field_score"])
+    nf_mean = {sp: round(sum(v) / len(v), 3) for sp, v in sorted(nf.items())}
+    primary = max(nf_mean, key=lambda sp: (nf_mean[sp], len(nf[sp]))) if nf_mean else "unknown"
+    reasons: Dict[str, int] = {}
+    for val, why in pairs.values():
+        reasons[why] = reasons.get(why, 0) + 1
+    must = sum(1 for val, _ in pairs.values() if val > 0)
+    mode = (VP_SOURCE_WAV if n_wav == len(ids) else "mixed" if n_wav else
+            VP_SOURCE_PROXY_AC if VP_SOURCE_PROXY_AC in srcs else VP_SOURCE_PROXY_TEXT)
+    summary = {
+        "voiceprint_dim": VP_DIM, "voiceprint_mode": mode,
+        "turns_with_voiceprint": n_wav, "turns_with_proxy_voiceprint": len(ids) - n_wav,
+        "nodes": n, "long_turn_splits": sum(1 for ns in nodes_of.values() if len(ns) > 1),
+        "must_link_constraints": must, "cannot_link_constraints": len(pairs) - must,
+        "constraints_by_reason": dict(sorted(reasons.items())), "constraint_conflicts_dropped": len(conflicts),
+        "cross_block_constraints_dropped": dropped, "e2cp_alpha": alpha, "p_percentile": VP_P_PERCENTILE,
+        "blocks": len(blocks),
+        "mean_intra_speaker_affinity_raw": mean([turn_aff(a_raw, i, j) for i, j in intra]),
+        "mean_intra_speaker_affinity_e2cp": mean([turn_aff(a_hat, i, j) for i, j in intra]),
+        "mean_inter_speaker_affinity_raw": mean([turn_aff(a_raw, i, j) for i, j in inter]),
+        "mean_inter_speaker_affinity_e2cp": mean([turn_aff(a_hat, i, j) for i, j in inter]),
+        "diarizer_speakers": len({by_id[i].speaker_id for i in ids}),
+        "estimated_speakers": max(est_k) if est_k else 0, "window_vote_flips": flips,
+        "near_field_primary_speaker": primary, "near_field_by_speaker": nf_mean,
+        "diarization_consistency_score": (round(sum(1 for i in acoustic if refined[i] == by_id[i].speaker_id)
+                                                / len(acoustic), 3) if acoustic else None),
+        "relabel_candidates": [{"turn_id": i, "diarizer": by_id[i].speaker_id, "voiceprint_speaker": refined[i]}
+                               for i in acoustic if refined[i] != by_id[i].speaker_id],
+        "bi_cl_gsn_speaker_weighting": "voiceprint_e2cp" if acoustic else "diarizer_label",
+        "constraints": [{"link": "must" if val > 0 else "cannot", "nodes": [u, v],
+                         "turns": [nodes[u][0], nodes[v][0]], "reason": why}
+                        for (u, v), (val, why) in sorted(pairs.items())][:60],
+    }
+    return {"summary": summary, "same_speaker_prob": same_speaker_prob, "affinity_raw": affinity_raw,
+            "affinity_e2cp": affinity_e2cp, "refined_speaker": refined, "turn_records": rec}
+
+
+# synthetic test voices (unit tests here and in exp1_pi_audio_check): (F0 Hz, formants Hz, spectral tilt)
+TEST_VOICE_LOW = (110.0, (600.0, 1100.0, 2500.0), 1.0)    # low pitch, bright harmonic timbre
+TEST_VOICE_HIGH = (230.0, (850.0, 1900.0, 3000.0), 1.7)   # high pitch, darker timbre
+
+
+def synth_test_voice(voice: Tuple[float, Tuple[float, ...], float], seconds: float, seed: int = 1,
+                     amplitude: float = 9000.0, far_field: bool = False, sample_rate: int = 16000) -> List[int]:
+    """Deterministic voiced 'speech' (int16): wavetable harmonics shaped by 3 formants and a 1/k^tilt slope, 5 Hz
+    vibrato, ~4 Hz syllabic AM and a per-seed +-4% F0 / formant offset. far_field adds 3 room echoes, a one-pole
+    high-frequency damping, -10 dB level and a noise floor (a 1-3 m interlocutor vs the headset wearer)."""
+    f0, formants, tilt = voice
+    rnd = (seed * 2654435761) % 2 ** 32
+    off = 1.0 + 0.04 * (((rnd >> 8) % 2001) / 1000.0 - 1.0)
+    f0 *= off
+    size = 1024
+    table = [0.0] * size
+    for k in range(1, int(3800.0 / f0) + 1):
+        amp = (1.0 / k ** tilt) * sum(1.0 / (1.0 + ((k * f0 - fm * off) / 120.0) ** 2) for fm in formants) + 0.02 / k
+        ph = (k * 0.7 + seed) % (2 * math.pi)
+        for i in range(size):
+            table[i] += amp * math.sin(2 * math.pi * k * i / size + ph)
+    peak = max(abs(v) for v in table) or 1.0
+    table = [v / peak for v in table]
+    n = int(seconds * sample_rate)
+    out, phase, lcg = [0.0] * n, 0.0, rnd or 1
+    syl = 3.5 + (rnd % 100) / 100.0
+    for i in range(n):
+        t = i / sample_rate
+        phase = (phase + f0 * (1.0 + 0.02 * math.sin(2 * math.pi * 5.0 * t)) / sample_rate) % 1.0
+        env = 0.55 + 0.45 * math.sin(2 * math.pi * syl * t) ** 2
+        lcg = (1103515245 * lcg + 12345) % 2 ** 31
+        out[i] = amplitude * env * table[int(phase * size)] + amplitude * 0.01 * (lcg / 2 ** 30 - 1.0)
+    if far_field:
+        dry = out
+        out = [dry[i] + sum(g * dry[i - d] for d, g in ((331, 0.55), (757, 0.4), (1279, 0.3)) if i >= d)
+               for i in range(n)]
+        y = 0.0
+        for i in range(n):
+            y = 0.35 * out[i] + 0.65 * y
+            lcg = (1103515245 * lcg + 12345) % 2 ** 31
+            out[i] = 0.32 * y + amplitude * 0.006 * (lcg / 2 ** 30 - 1.0)
+    return [max(-32768, min(32767, int(v))) for v in out]
 
 
 class XiaoZhaoMPCEngine:
@@ -1204,15 +2055,21 @@ class XiaoZhaoMPCEngine:
         # transitions / fusion run on upstream topic threads when given, else on the engine's TD/MF threads
         thread_of = {t.turn_id: (t.thread_id if t.thread_id == "T_CHITCHAT" or pre_thread[t.turn_id] in ("T0", "")
                                  else pre_thread[t.turn_id]) for t in session.turns}
-        # Upgrade E: Bi-CL session-prototype refinement of the (greedy) upstream threads
-        thread_of, bi_cl_summary = bi_cl_disentangle_threads(session.turns, thread_of)
-
-        # Upgrade A: session-level roles + who->whom
+        # Upgrade A: session-level roles (independent of thread_of; needed by G's vocative constraints)
         role_sources: Dict[str, str] = {}
         graph_role_evidence: Dict[str, Any] = {}
         speaker_roles = infer_session_speaker_roles(session.turns, pre_role,
                                                     role_priors or getattr(session, "role_priors", None),
                                                     role_sources, graph_role_evidence)
+        # Upgrade G: turn voiceprints + lexical Must/Cannot-Link + E2CP -> continuous same-speaker confidence
+        # (feeds E's speaker continuity and F's speaker adjacency U; text-only sessions keep the diarizer label)
+        vp = constrained_voiceprint_diarize(session.turns, build_gift_graph(session.turns, thread_of), speaker_roles)
+        same_spk = vp["same_speaker_prob"] if vp["summary"]["bi_cl_gsn_speaker_weighting"] == "voiceprint_e2cp" \
+            else None
+        # Upgrade E: Bi-CL session-prototype refinement of the (greedy) upstream threads
+        thread_of, bi_cl_summary = bi_cl_disentangle_threads(session.turns, thread_of, speaker_prob=same_spk)
+
+        # Upgrade A (cont.): who->whom
         role_detail: Dict[int, Tuple[str, str, str]] = {}
         for i, t in enumerate(session.turns):
             role = speaker_roles.get(t.speaker_id, t.inferred_role)
@@ -1253,7 +2110,7 @@ class XiaoZhaoMPCEngine:
         by_tid = {t.turn_id: t for t in session.turns}
         gsn = gsn_propagate_session(session.turns, gift, {
             i: gsn_initial_state(by_tid[i], amendments.get(i, {}).get("gift_fine", fine_of[i]),
-                                 self.detect_domain_intents) for i in gift["node_ids"]})
+                                 self.detect_domain_intents) for i in gift["node_ids"]}, speaker_weight=same_spk)
         session.dst_slots["cross_turn_fusion"] = aggregate_cross_turn_slots(
             session.turns, speaker_roles, thread_of, transitions, safety_level, gsn)
         fusion = session.dst_slots["cross_turn_fusion"]
@@ -1295,6 +2152,7 @@ class XiaoZhaoMPCEngine:
             "gift_graph_summary": gift_summary,
             "bi_cl_disentangle_summary": bi_cl_summary,
             "gsn_flow_summary": gsn["summary"],
+            "voiceprint_diarization_summary": vp["summary"],
             "turns_detail": [
                 {
                     "turn_id": t.turn_id,
@@ -1309,6 +2167,9 @@ class XiaoZhaoMPCEngine:
                     "mintrec_fine": fine_of[t.turn_id],
                     "gift_fine": amendments.get(t.turn_id, {}).get("gift_fine", fine_of[t.turn_id]),
                     "gift_reply_to": gift["reply_to"].get(t.turn_id),
+                    "refined_speaker": vp["refined_speaker"].get(t.turn_id, t.speaker_id),
+                    "voiceprint_source": vp["turn_records"][t.turn_id]["source"],
+                    "near_field_score": vp["turn_records"][t.turn_id]["near_field_score"],
                     "text": t.text,
                 }
                 for t in session.turns
@@ -1545,6 +2406,13 @@ def load_from_whisper_json(json_path: str, session_id: str = "S_WHISPER", case_i
                 speaker_id=seg.get("speaker", f"speaker_{(idx % 3) + 1}"),
                 inferred_role=seg.get("role_hint", "caregiver"),
                 text=seg.get("text", "").strip(),
+                rms_energy=float(seg.get("rms_energy") or 0.0),
+                zcr_pitch=float(seg.get("zcr_pitch") or 0.0),
+                end_time=float(seg.get("end") or 0.0),
+                voiceprint=seg.get("voiceprint"),
+                voiceprint_subvectors=seg.get("voiceprint_subvectors"),
+                voiceprint_source=seg.get("voiceprint_source", ""),
+                near_field_score=float(seg.get("near_field_score", -1.0)),
             )
         )
     return DialogueSessionState(session_id=session_id, case_id=case_id, turns=turns)
@@ -1724,6 +2592,139 @@ def _gift_bicl_unit_tests() -> None:
     roles = infer_session_speaker_roles(mt, sources_out=src, graph_evidence_out=ev)
     assert roles == {"speaker_1": ROLE_RESEARCHER, "speaker_3": ROLE_SUPERVISOR, "speaker_2": ROLE_DIRECTOR}, roles
     assert src["speaker_3"] == GRAPH_INFERRED_SOURCE and ev["speaker_3"]["label"].endswith("(graph_inferred)"), ev
+
+
+def _voiceprint_unit_tests() -> None:
+    """v7.7 unit tests: (a) 75%-anchor + 0.25 s collar voiceprints on synthetic low / high voices, (b) E2CP
+    Must-Link boost / Cannot-Link suppression, (c) voiceprint_diarization_summary feeding Bi-CL and GSN."""
+    import os
+    import tempfile
+    lo, hi = TEST_VOICE_LOW, TEST_VOICE_HIGH
+    close = lambda u, v: len(u) == len(v) and all(abs(a - b) < 1e-9 for a, b in zip(u, v))   # noqa: E731
+    # --- (a) sampling rule: collar-trimmed [0.25, 3.75] -> window [0.50, 0.90] of 3.5 s, anchor at 75%
+    w, col = voiceprint_windows(0.0, 4.0)
+    assert col and len(w) == 1 and close(w[0], (2.0, 3.4, 2.875)), w
+    w, col = voiceprint_windows(10.0, 23.0)                      # 13 s > 6 s -> 3 Must-Linked pieces
+    piece = 12.5 / 3
+    assert col and len(w) == 3 and close(w[0], (10.25 + 0.5 * piece, 10.25 + 0.9 * piece, 10.25 + 0.75 * piece)), w
+    w, col = voiceprint_windows(0.0, 0.6)                        # too short for a collar
+    assert not col and close(w[0], (0.3, 0.54, 0.45)), w
+    # one stream: T1 lo | T2 hi | T3 = 1.4 s hi bleed + lo | T4 hi | T5 lo + 0.2 s hi tail bleed | T6 hi (7 s)
+    pcm = (synth_test_voice(lo, 3.0, 1) + synth_test_voice(hi, 3.0, 2) + synth_test_voice(hi, 1.4, 3)
+           + synth_test_voice(lo, 2.1, 4) + synth_test_voice(hi, 3.0, 5) + synth_test_voice(lo, 1.0, 6)
+           + synth_test_voice(hi, 0.2, 7) + synth_test_voice(hi, 7.0, 8))
+    spans = [(0.0, 3.0), (3.0, 6.0), (6.0, 9.5), (9.5, 12.5), (12.5, 13.7), (13.7, 20.7)]
+    r = [extract_turn_voiceprint(pcm, 16000, s, e) for s, e in spans]
+    cos = lambda i, j: _vp_cos(r[i]["voiceprint"], r[j]["voiceprint"])   # noqa: E731
+    assert all(len(x["voiceprint"]) == VP_DIM and x["source"] == VP_SOURCE_WAV for x in r)
+    assert abs(sum(v * v for v in r[0]["voiceprint"]) - 1.0) < 1e-3
+    assert 100 < r[0]["f0_hz"] < 125 and 205 < r[1]["f0_hz"] < 250, (r[0]["f0_hz"], r[1]["f0_hz"])
+    assert min(cos(0, 2), cos(1, 3), cos(1, 5)) > 0.9 > 0.5 > max(cos(0, 1), cos(2, 3), cos(0, 5)), \
+        [[round(cos(i, j), 3) for j in range(6)] for i in range(6)]
+    assert r[2]["windows"][0][0] >= 7.4 and cos(2, 0) > cos(2, 1) + 0.5, r[2]["windows"]   # anchor skips the bleed
+    assert r[4]["collar_applied"] and r[4]["windows"][0][1] <= 13.5 and cos(4, 0) > cos(4, 1) + 0.5, r[4]["windows"]
+    assert len(r[5]["sub_voiceprints"]) == 2 and all(_vp_cos(s, r[1]["voiceprint"]) > 0.9
+                                                     for s in r[5]["sub_voiceprints"])
+    assert extract_turn_voiceprint(pcm, 16000, 0.0, 3.0)["voiceprint"] == r[0]["voiceprint"], "deterministic"
+    far = synth_test_voice(hi, 12.6, 11, far_field=True)        # same high voice from 1-3 m (reverb, damped highs)
+    rf = extract_turn_voiceprint(far, 16000, 0.0, 2.5)
+    assert r[1]["near_field_score"] > rf["near_field_score"] + 0.1, (r[1]["near_field_score"], rf["near_field_score"])
+    px = extract_turn_voiceprint(None, rms_energy=2500.0, zcr_pitch=0.07, text="我們先設計一個流程", duration=3.0)
+    assert px["source"] == VP_SOURCE_PROXY_AC and px["confidence"] == 0.25 and len(px["voiceprint"]) == VP_DIM
+    assert px == extract_turn_voiceprint(None, rms_energy=2500.0, zcr_pitch=0.07, text="我們先設計一個流程", duration=3.0)
+    pt = extract_turn_voiceprint(None, text="好", duration=1.0)
+    assert pt["source"] == VP_SOURCE_PROXY_TEXT and pt["confidence"] == 0.0 and pt["near_field_score"] == -1.0
+
+    # --- (b) E2CP: nodes 0, 1 = speaker X, 2, 3 = speaker Y; the raw affinity confuses 0 with 2
+    a = [[1.0, .60, .80, .55], [.60, 1.0, .62, .58], [.80, .62, 1.0, .70], [.55, .58, .70, 1.0]]
+    z = [[0.0] * 4 for _ in range(4)]
+    for i, j, val in ((0, 1, 1.0), (2, 3, 1.0), (0, 2, -1.0)):
+        z[i][j] = z[j][i] = val
+    ah, q = e2cp_adjust_affinity(a, z)
+    assert q[0][1] > 0 > q[0][2] and ah[0][1] > a[0][1] and ah[2][3] > a[2][3] and ah[0][2] < a[0][2], (q, ah)
+    assert abs(ah[0][1] - (1 - (1 - q[0][1]) * (1 - a[0][1]))) < 1e-12 and abs(ah[0][2] - (1 + q[0][2]) * a[0][2]) < 1e-12
+    intra = lambda m: (m[0][1] + m[2][3]) / 2                     # noqa: E731
+    inter = lambda m: (m[0][2] + m[0][3] + m[1][2] + m[1][3]) / 4   # noqa: E731
+    assert intra(ah) > intra(a) and inter(ah) < inter(a), (intra(a), intra(ah), inter(a), inter(ah))
+    raw_lab, e2cp_lab = _vp_spectral(_vp_refine(a), a, 2, 3)[0], _vp_spectral(_vp_refine(ah), ah, 2, 3)[0]
+    assert raw_lab[0] == raw_lab[2] and e2cp_lab[0] == e2cp_lab[1] != e2cp_lab[2] == e2cp_lab[3], (raw_lab, e2cp_lab)
+    assert e2cp_adjust_affinity(a, [[0.0] * 4 for _ in range(4)])[0] == a, "no constraints: A^ = A"
+
+    # --- (c) session: speaker_1 = dry low voice (headset), speaker_2 = far-field high voice; turn 7 is the far
+    # high voice mislabelled speaker_1 by the diarizer
+    ex = lambda src, s, e: extract_turn_voiceprint(src, 16000, s, e)   # noqa: E731
+    recs = {1: r[0], 2: ex(far, 0.0, 2.5), 3: r[2], 4: ex(far, 2.5, 3.1), 5: r[4], 6: ex(far, 3.1, 10.1),
+            7: ex(far, 10.1, 12.6), 8: ex(pcm, 0.5, 2.9)}
+    script = {1: ("speaker_1", 0.0, 3.0, "我們後端的知識庫系統可以幫大家裝綁定碼"),
+              2: ("speaker_2", 3.2, 5.7, "那這個居督可以綁哪一個居服員的個案嗎？"),
+              3: ("speaker_1", 5.9, 9.4, "可以，我們後端的系統會幫居督綁定"),             # QA Cannot-Link 2-3
+              4: ("speaker_2", 9.4, 10.0, "嗯嗯"),
+              5: ("speaker_1", 10.4, 11.6, "然後每個居督都有自己的帳號"),                 # latch Must-Link 3-5
+              6: ("speaker_2", 11.8, 18.8, "我覺得要先安撫居服員，然後回報居督，事後再回報主任"),   # 7 s split
+              7: ("speaker_1", 19.0, 21.5, "那督導這邊派案的時候要怎麼處理"),
+              8: ("speaker_1", 21.7, 24.1, "我們後端可以做一個派案的介面")}             # self-reference 1-3-8
+    turns = [UtteranceTurn(k, ts, sp, "unknown", tx, end_time=te, rms_energy=recs[k]["rms_energy"],
+                           zcr_pitch=recs[k]["zcr_pitch"], voiceprint=recs[k]["voiceprint"],
+                           voiceprint_subvectors=recs[k]["sub_voiceprints"], voiceprint_source=recs[k]["source"],
+                           near_field_score=recs[k]["near_field_score"]) for k, (sp, ts, te, tx) in script.items()]
+    res = XiaoZhaoMPCEngine().analyze_session(DialogueSessionState("S_VP", "C", turns=turns))
+    v = res["voiceprint_diarization_summary"]
+    assert v["voiceprint_mode"] == VP_SOURCE_WAV and v["turns_with_voiceprint"] == 8 and v["long_turn_splits"] == 1, v
+    assert v["constraints_by_reason"] == {"discourse_latch": 1, "lexical_self_consistency": 2, "long_turn_split": 1,
+                                          "qa_turn_taking": 1}, v["constraints"]
+    assert (v["must_link_constraints"], v["cannot_link_constraints"]) == (4, 1), v
+    assert v["mean_intra_speaker_affinity_e2cp"] > v["mean_intra_speaker_affinity_raw"] \
+        > v["mean_inter_speaker_affinity_raw"], v
+    assert v["near_field_primary_speaker"] == "speaker_1" and v["estimated_speakers"] == 2, v
+    assert v["diarization_consistency_score"] == 0.875 and v["relabel_candidates"] == [
+        {"turn_id": 7, "diarizer": "speaker_1", "voiceprint_speaker": "speaker_2"}], v
+    td = {d["turn_id"]: d for d in res["turns_detail"]}
+    assert td[7]["refined_speaker"] == "speaker_2" and td[1]["voiceprint_source"] == VP_SOURCE_WAV
+    blob = json.dumps(res, ensure_ascii=False)
+    assert '"voiceprint": [' not in blob and "sub_voiceprints" not in blob, "payload never carries raw vectors"
+    gs, bs = res["gsn_flow_summary"], res["bi_cl_disentangle_summary"]
+    assert gs["speaker_edge_weighting"] == "voiceprint_e2cp" and 0.5 < gs["mean_u_speaker_confidence"] < 1.0, gs
+    assert bs["speaker_continuity_weighting"] == "voiceprint_e2cp", bs
+    d = constrained_voiceprint_diarize(turns, build_gift_graph(turns), res["speaker_roles"])
+    prob = d["same_speaker_prob"]
+    assert prob(1, 3) > 0.95 > max(prob(5, 7), prob(7, 8)) and 0.4 < prob(6, 7) <= 0.5, \
+        (prob(1, 3), prob(5, 7), prob(7, 8), prob(6, 7))   # mislabelled U edges lose weight; 6-7 gains it
+    calls: List[Tuple[int, int]] = []
+    spy = lambda i, j: calls.append((i, j)) or prob(i, j)   # noqa: E731
+    bi_cl_disentangle_threads(turns, speaker_prob=spy)
+    n_bicl = len(calls)
+    g = build_gift_graph(turns)
+    weighted, hard = gsn_propagate_session(turns, g, speaker_weight=spy), gsn_propagate_session(turns, g)
+    assert n_bicl > 0 and len(calls) > n_bicl, "Bi-CL and GSN both consume the same-speaker confidence"
+    assert hard["summary"]["mean_u_speaker_confidence"] == 1.0 and \
+        weighted["summary"]["mean_lambda_speaker_weight"] < hard["summary"]["mean_lambda_speaker_weight"]
+    # JSON-only replay of the same segments (Whisper format with voiceprint fields) reproduces the verdict
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "vp_segments.json")
+        Path(path).write_text(json.dumps({"segments": [
+            {"start": t.timestamp, "end": t.end_time, "speaker": t.speaker_id, "text": t.text,
+             "rms_energy": t.rms_energy, "zcr_pitch": t.zcr_pitch, "voiceprint": t.voiceprint,
+             "voiceprint_subvectors": t.voiceprint_subvectors, "voiceprint_source": t.voiceprint_source,
+             "near_field_score": t.near_field_score} for t in turns]}, ensure_ascii=False), encoding="utf-8")
+        replay = XiaoZhaoMPCEngine().analyze_session(load_from_whisper_json(path))["voiceprint_diarization_summary"]
+    assert replay["turns_with_voiceprint"] == 8 and replay["relabel_candidates"] == v["relabel_candidates"], replay
+    # text-only: same lexical constraints are counted, but Bi-CL / GSN keep the hard diarizer label
+    rt = XiaoZhaoMPCEngine().analyze_session(DialogueSessionState("S_TXT", "C", turns=[
+        UtteranceTurn(t.turn_id, t.timestamp, t.speaker_id, "unknown", t.text, end_time=t.end_time) for t in turns]))
+    vt = rt["voiceprint_diarization_summary"]
+    assert vt["voiceprint_mode"] == VP_SOURCE_PROXY_TEXT and vt["turns_with_voiceprint"] == 0, vt
+    assert (vt["must_link_constraints"], vt["cannot_link_constraints"]) == (3, 1) and \
+        vt["diarization_consistency_score"] is None, vt
+    assert vt["bi_cl_gsn_speaker_weighting"] == "diarizer_label" and \
+        rt["gsn_flow_summary"]["speaker_edge_weighting"] == "hard_0_1"
+    # 2-node session and the chronological block path (> VP_BLOCK_NODES nodes)
+    pair = constrained_voiceprint_diarize(turns[:2])["summary"]
+    assert pair["estimated_speakers"] == 2 and pair["diarization_consistency_score"] == 1.0, pair
+    big = [UtteranceTurn(k, 2.0 * k, f"speaker_{k % 3 + 1}", "unknown", "我們先設計一個流程", end_time=2.0 * k + 1.8,
+                         rms_energy=1000.0 + 300.0 * (k % 3), zcr_pitch=0.05 + 0.02 * (k % 3)) for k in range(1, 61)]
+    db = constrained_voiceprint_diarize(big)
+    assert db["summary"]["blocks"] == 2 and db["summary"]["voiceprint_mode"] == VP_SOURCE_PROXY_AC, db["summary"]
+    assert 0.0 <= db["same_speaker_prob"](1, 59) <= 1.0 and db["same_speaker_prob"](3, 6) > db["same_speaker_prob"](3, 4)
 
 
 if __name__ == "__main__":
@@ -1924,6 +2925,9 @@ if __name__ == "__main__":
 
     _gift_bicl_unit_tests()
     _gsn_unit_tests()
+    _voiceprint_unit_tests()
+    assert all(r["voiceprint_diarization_summary"]["bi_cl_gsn_speaker_weighting"] == "diarizer_label"
+               for r in results), "text-only benchmarks keep the diarizer label"
     if "--quiet-test" in sys.argv:
         print(f"MPC_CORE_OK (env={'PI' if ON_PI else 'MAC_MOCK'}, scenarios={len(results)})")
         sys.exit(0)

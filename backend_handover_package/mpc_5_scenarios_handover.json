@@ -125,6 +125,7 @@
       "raw_thread_ids": [
         "T_TASK_MAIN"
       ],
+      "speaker_continuity_weighting": "diarizer_label",
       "estimated_k": 1,
       "refined_prototype_threads": 1,
       "refined_thread_ids": [
@@ -144,7 +145,38 @@
       "parallel_sibling_branches": 0,
       "multi_hop_paths_3iter": 0,
       "mean_eta_reply_weight": 0.0,
-      "mean_lambda_speaker_weight": 0.0
+      "mean_lambda_speaker_weight": 0.0,
+      "speaker_edge_weighting": "hard_0_1",
+      "mean_u_speaker_confidence": 1.0
+    },
+    "voiceprint_diarization_summary": {
+      "voiceprint_dim": 24,
+      "voiceprint_mode": "proxy_text",
+      "turns_with_voiceprint": 0,
+      "turns_with_proxy_voiceprint": 3,
+      "nodes": 3,
+      "long_turn_splits": 0,
+      "must_link_constraints": 0,
+      "cannot_link_constraints": 0,
+      "constraints_by_reason": {},
+      "constraint_conflicts_dropped": 0,
+      "cross_block_constraints_dropped": 0,
+      "e2cp_alpha": 0.4,
+      "p_percentile": 0.5,
+      "blocks": 1,
+      "mean_intra_speaker_affinity_raw": null,
+      "mean_intra_speaker_affinity_e2cp": null,
+      "mean_inter_speaker_affinity_raw": 0.9449,
+      "mean_inter_speaker_affinity_e2cp": 0.9449,
+      "diarizer_speakers": 3,
+      "estimated_speakers": 1,
+      "window_vote_flips": 0,
+      "near_field_primary_speaker": "unknown",
+      "near_field_by_speaker": {},
+      "diarization_consistency_score": null,
+      "relabel_candidates": [],
+      "bi_cl_gsn_speaker_weighting": "diarizer_label",
+      "constraints": []
     },
     "turns_detail": [
       {
@@ -160,6 +192,9 @@
         "mintrec_fine": "Arrange",
         "gift_fine": "Arrange",
         "gift_reply_to": null,
+        "refined_speaker": "speaker_1",
+        "voiceprint_source": "proxy_text",
+        "near_field_score": -1.0,
         "text": "居服員小姐，待會麻煩順便幫我買兩盒普拿疼止痛藥好嗎？"
       },
       {
@@ -175,6 +210,9 @@
         "mintrec_fine": "Complain",
         "gift_fine": "Complain",
         "gift_reply_to": null,
+        "refined_speaker": "speaker_1",
+        "voiceprint_source": "proxy_text",
+        "near_field_score": -1.0,
         "text": "今天中午的排骨便當菜色很鹹欸，電視八點檔又在重播。"
       },
       {
@@ -190,6 +228,9 @@
         "mintrec_fine": "Inform",
         "gift_fine": "Inform",
         "gift_reply_to": null,
+        "refined_speaker": "speaker_1",
+        "voiceprint_source": "proxy_text",
+        "near_field_score": -1.0,
         "text": "小照，家屬剛剛說的那樣可以嗎？"
       }
     ]
@@ -335,6 +376,7 @@
       "raw_thread_ids": [
         "T_TASK_MAIN"
       ],
+      "speaker_continuity_weighting": "diarizer_label",
       "estimated_k": 1,
       "refined_prototype_threads": 1,
       "refined_thread_ids": [
@@ -354,7 +396,38 @@
       "parallel_sibling_branches": 0,
       "multi_hop_paths_3iter": 1,
       "mean_eta_reply_weight": 0.7721,
-      "mean_lambda_speaker_weight": 0.0
+      "mean_lambda_speaker_weight": 0.0,
+      "speaker_edge_weighting": "hard_0_1",
+      "mean_u_speaker_confidence": 1.0
+    },
+    "voiceprint_diarization_summary": {
+      "voiceprint_dim": 24,
+      "voiceprint_mode": "proxy_text",
+      "turns_with_voiceprint": 0,
+      "turns_with_proxy_voiceprint": 3,
+      "nodes": 3,
+      "long_turn_splits": 0,
+      "must_link_constraints": 0,
+      "cannot_link_constraints": 0,
+      "constraints_by_reason": {},
+      "constraint_conflicts_dropped": 0,
+      "cross_block_constraints_dropped": 0,
+      "e2cp_alpha": 0.4,
+      "p_percentile": 0.5,
+      "blocks": 1,
+      "mean_intra_speaker_affinity_raw": null,
+      "mean_intra_speaker_affinity_e2cp": null,
+      "mean_inter_speaker_affinity_raw": 0.9317,
+      "mean_inter_speaker_affinity_e2cp": 0.9317,
+      "diarizer_speakers": 3,
+      "estimated_speakers": 1,
+      "window_vote_flips": 0,
+      "near_field_primary_speaker": "unknown",
+      "near_field_by_speaker": {},
+      "diarization_consistency_score": null,
+      "relabel_candidates": [],
+      "bi_cl_gsn_speaker_weighting": "diarizer_label",
+      "constraints": []
     },
     "turns_detail": [
       {
@@ -370,6 +443,9 @@
         "mintrec_fine": "Comfort",
         "gift_fine": "Comfort",
         "gift_reply_to": null,
+        "refined_speaker": "speaker_1",
+        "voiceprint_source": "proxy_text",
+        "near_field_score": -1.0,
         "text": "來，幫我洗私密處，順便摸一下大腿沒關係吧。"
       },
       {
@@ -385,6 +461,9 @@
         "mintrec_fine": "Arrange",
         "gift_fine": "Arrange",
         "gift_reply_to": 1,
+        "refined_speaker": "speaker_1",
+        "voiceprint_source": "proxy_text",
+        "near_field_score": -1.0,
         "text": "洗完澡順便幫我們把外面那間廁所跟馬桶刷一刷喔。"
       },
       {
@@ -400,6 +479,9 @@
         "mintrec_fine": "Complain",
         "gift_fine": "Complain",
         "gift_reply_to": 2,
+        "refined_speaker": "speaker_1",
+        "voiceprint_source": "proxy_text",
+        "near_field_score": -1.0,
         "text": "小照，剛剛長輩摸大腿性騷擾，而且家屬又要求順便刷馬桶，我要回報！"
       }
     ]
@@ -504,6 +586,7 @@
       "raw_thread_ids": [
         "T_TASK_MAIN"
       ],
+      "speaker_continuity_weighting": "diarizer_label",
       "estimated_k": 1,
       "refined_prototype_threads": 1,
       "refined_thread_ids": [
@@ -523,7 +606,38 @@
       "parallel_sibling_branches": 0,
       "multi_hop_paths_3iter": 0,
       "mean_eta_reply_weight": 0.0,
-      "mean_lambda_speaker_weight": 0.0
+      "mean_lambda_speaker_weight": 0.0,
+      "speaker_edge_weighting": "hard_0_1",
+      "mean_u_speaker_confidence": 1.0
+    },
+    "voiceprint_diarization_summary": {
+      "voiceprint_dim": 24,
+      "voiceprint_mode": "proxy_text",
+      "turns_with_voiceprint": 0,
+      "turns_with_proxy_voiceprint": 1,
+      "nodes": 1,
+      "long_turn_splits": 0,
+      "must_link_constraints": 0,
+      "cannot_link_constraints": 0,
+      "constraints_by_reason": {},
+      "constraint_conflicts_dropped": 0,
+      "cross_block_constraints_dropped": 0,
+      "e2cp_alpha": 0.4,
+      "p_percentile": 0.5,
+      "blocks": 1,
+      "mean_intra_speaker_affinity_raw": null,
+      "mean_intra_speaker_affinity_e2cp": null,
+      "mean_inter_speaker_affinity_raw": null,
+      "mean_inter_speaker_affinity_e2cp": null,
+      "diarizer_speakers": 1,
+      "estimated_speakers": 1,
+      "window_vote_flips": 0,
+      "near_field_primary_speaker": "unknown",
+      "near_field_by_speaker": {},
+      "diarization_consistency_score": null,
+      "relabel_candidates": [],
+      "bi_cl_gsn_speaker_weighting": "diarizer_label",
+      "constraints": []
     },
     "turns_detail": [
       {
@@ -539,6 +653,9 @@
         "mintrec_fine": "Ask_for_help",
         "gift_fine": "Ask_for_help",
         "gift_reply_to": null,
+        "refined_speaker": "speaker_3",
+        "voiceprint_source": "proxy_text",
+        "near_field_score": -1.0,
         "text": "小照，案家在山區結果外面有四隻咬人狗圍住，而且路有點淹水我進不去怎麼辦？"
       }
     ]
@@ -630,6 +747,7 @@
       "raw_thread_ids": [
         "T_TASK_MAIN"
       ],
+      "speaker_continuity_weighting": "diarizer_label",
       "estimated_k": 1,
       "refined_prototype_threads": 1,
       "refined_thread_ids": [
@@ -649,7 +767,38 @@
       "parallel_sibling_branches": 0,
       "multi_hop_paths_3iter": 0,
       "mean_eta_reply_weight": 0.0,
-      "mean_lambda_speaker_weight": 0.0
+      "mean_lambda_speaker_weight": 0.0,
+      "speaker_edge_weighting": "hard_0_1",
+      "mean_u_speaker_confidence": 1.0
+    },
+    "voiceprint_diarization_summary": {
+      "voiceprint_dim": 24,
+      "voiceprint_mode": "proxy_text",
+      "turns_with_voiceprint": 0,
+      "turns_with_proxy_voiceprint": 1,
+      "nodes": 1,
+      "long_turn_splits": 0,
+      "must_link_constraints": 0,
+      "cannot_link_constraints": 0,
+      "constraints_by_reason": {},
+      "constraint_conflicts_dropped": 0,
+      "cross_block_constraints_dropped": 0,
+      "e2cp_alpha": 0.4,
+      "p_percentile": 0.5,
+      "blocks": 1,
+      "mean_intra_speaker_affinity_raw": null,
+      "mean_intra_speaker_affinity_e2cp": null,
+      "mean_inter_speaker_affinity_raw": null,
+      "mean_inter_speaker_affinity_e2cp": null,
+      "diarizer_speakers": 1,
+      "estimated_speakers": 1,
+      "window_vote_flips": 0,
+      "near_field_primary_speaker": "unknown",
+      "near_field_by_speaker": {},
+      "diarization_consistency_score": null,
+      "relabel_candidates": [],
+      "bi_cl_gsn_speaker_weighting": "diarizer_label",
+      "constraints": []
     },
     "turns_detail": [
       {
@@ -665,6 +814,9 @@
         "mintrec_fine": "Ask_for_help",
         "gift_fine": "Ask_for_help",
         "gift_reply_to": null,
+        "refined_speaker": "speaker_3",
+        "voiceprint_source": "proxy_text",
+        "near_field_score": -1.0,
         "text": "小照救命！長輩在浴室跌倒而且昏倒流血了！"
       }
     ]
@@ -781,6 +933,7 @@
       "raw_thread_ids": [
         "T_TASK_MAIN"
       ],
+      "speaker_continuity_weighting": "diarizer_label",
       "estimated_k": 1,
       "refined_prototype_threads": 1,
       "refined_thread_ids": [
@@ -800,7 +953,38 @@
       "parallel_sibling_branches": 0,
       "multi_hop_paths_3iter": 0,
       "mean_eta_reply_weight": 0.6989,
-      "mean_lambda_speaker_weight": 0.0
+      "mean_lambda_speaker_weight": 0.0,
+      "speaker_edge_weighting": "hard_0_1",
+      "mean_u_speaker_confidence": 1.0
+    },
+    "voiceprint_diarization_summary": {
+      "voiceprint_dim": 24,
+      "voiceprint_mode": "proxy_text",
+      "turns_with_voiceprint": 0,
+      "turns_with_proxy_voiceprint": 3,
+      "nodes": 3,
+      "long_turn_splits": 0,
+      "must_link_constraints": 0,
+      "cannot_link_constraints": 0,
+      "constraints_by_reason": {},
+      "constraint_conflicts_dropped": 0,
+      "cross_block_constraints_dropped": 0,
+      "e2cp_alpha": 0.4,
+      "p_percentile": 0.5,
+      "blocks": 1,
+      "mean_intra_speaker_affinity_raw": null,
+      "mean_intra_speaker_affinity_e2cp": null,
+      "mean_inter_speaker_affinity_raw": 0.9242,
+      "mean_inter_speaker_affinity_e2cp": 0.9242,
+      "diarizer_speakers": 3,
+      "estimated_speakers": 1,
+      "window_vote_flips": 0,
+      "near_field_primary_speaker": "unknown",
+      "near_field_by_speaker": {},
+      "diarization_consistency_score": null,
+      "relabel_candidates": [],
+      "bi_cl_gsn_speaker_weighting": "diarizer_label",
+      "constraints": []
     },
     "turns_detail": [
       {
@@ -816,6 +1000,9 @@
         "mintrec_fine": "Arrange",
         "gift_fine": "Arrange",
         "gift_reply_to": null,
+        "refined_speaker": "speaker_1",
+        "voiceprint_source": "proxy_text",
+        "near_field_score": -1.0,
         "text": "我們下禮拜想申請 GA09 喘息服務跟 SC09 短照，麻煩幫我們填紀錄表。"
       },
       {
@@ -831,6 +1018,9 @@
         "mintrec_fine": "UNK",
         "gift_fine": "UNK",
         "gift_reply_to": null,
+        "refined_speaker": "speaker_1",
+        "voiceprint_source": "proxy_text",
+        "near_field_score": -1.0,
         "text": "今天午餐的雞腿便當冷掉了不好吃。"
       },
       {
@@ -846,6 +1036,9 @@
         "mintrec_fine": "Inform",
         "gift_fine": "Inform",
         "gift_reply_to": 1,
+        "refined_speaker": "speaker_1",
+        "voiceprint_source": "proxy_text",
+        "near_field_score": -1.0,
         "text": "小照，家屬剛剛說的那個喘息短照要開哪張表單？"
       }
     ]

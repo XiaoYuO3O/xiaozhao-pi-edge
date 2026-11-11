@@ -7,9 +7,10 @@ import interview_analyzer as ia
 import mpc_core
 from mpc_core import XiaoZhaoMPCEngine, UtteranceTurn, classify_mintrec_taxonomy
 
-def make_utt(turn_id: int, speaker_id: str, text: str, timestamp: float, role: str = "unknown", addressee: str = "unknown", thread_id: str = "T_MAIN") -> UtteranceTurn:
+def make_utt(turn_id: int, speaker_id: str, text: str, timestamp: float, role: str = "unknown", addressee: str = "unknown", thread_id: str = "T_MAIN", **extra) -> UtteranceTurn:
+    """extra: optional UtteranceTurn fields (v7.7 end_time / rms_energy / zcr_pitch / voiceprint ...)."""
     sig = inspect.signature(UtteranceTurn)
-    kwargs = {}
+    kwargs = {k: v for k, v in extra.items() if k in sig.parameters}
     for k in sig.parameters:
         if k == "turn_id": kwargs[k] = turn_id
         elif k == "speaker_id": kwargs[k] = speaker_id
@@ -229,11 +230,17 @@ def run_batch(audio_dir: str, model_size: str = "base", reuse_reports: bool = Fa
         p for p in adir.iterdir()
         if p.is_file() and p.suffix.lower() in (".mp3", ".m4a", ".wav") and not p.name.startswith(".")
     ])
-    if not audio_files:
+    # --reuse-reports also keeps recordings whose audio is absent (their hotspots fall back to proxy voiceprints)
+    report_only = sorted(rp.name[: -len("_mpc_report.json")] for rp in out_dir.glob("*_mpc_report.json")
+                         if rp.name[: -len("_mpc_report.json")] not in {af.stem for af in audio_files}) \
+        if reuse_reports else []
+    if not audio_files and not report_only:
         print(f"[WARN] No audio files found in {adir}")
         return 1
 
     print(f"=== Batch Scanning {len(audio_files)} Audio File(s) in {adir} ===")
+    for stem in report_only:
+        print(f"[{stem}] audio absent from {adir}: cached report only (voiceprints fall back to proxies)")
     for af in audio_files:
         chunked_pre_transcribe_if_needed(af, model_size=model_size, chunk_Minutes=15)
         rp = out_dir / f"{af.stem}_mpc_report.json"
@@ -247,10 +254,10 @@ def run_batch(audio_dir: str, model_size: str = "base", reuse_reports: bool = Fa
 
     engine = XiaoZhaoMPCEngine()
     reports = []
-    for af in audio_files:
-        rp = out_dir / f"{af.stem}_mpc_report.json"
+    for stem in sorted({af.stem for af in audio_files} | set(report_only)):
+        rp = out_dir / f"{stem}_mpc_report.json"
         if rp.exists():
-            reports.append((af.stem, json.loads(rp.read_text(encoding="utf-8"))))
+            reports.append((stem, json.loads(rp.read_text(encoding="utf-8"))))
 
     seen_turns = []
     total_raw_turns = 0
@@ -329,7 +336,8 @@ def run_batch(audio_dir: str, model_size: str = "base", reuse_reports: bool = Fa
                 utts.append(make_utt(
                     turn_id=i, speaker_id=sp, text=t["text"],
                     timestamp=float(t.get("start", st + i * 2.0)),
-                    addressee=t["addressee"], thread_id=t["greedy_thread_id"]   # Bi-CL refines in-session
+                    addressee=t["addressee"], thread_id=t["greedy_thread_id"],   # Bi-CL refines in-session
+                    **ia.voiceprint_turn_kwargs(t)                               # v7.7 voiceprint + acoustics
                 ))
 
             analysis = run_engine_session(engine, f"{src_name}_h{idx}", utts, rec_roles.get(src_name))
@@ -404,7 +412,46 @@ def run_batch(audio_dir: str, model_size: str = "base", reuse_reports: bool = Fa
             else:
                 print("    BEFORE (no previous export)")
             _print_digest("AFTER ", h["window_mmss"], _hotspot_digest(h))
+    print_voiceprint_table(sdata)
     return 0
+
+
+def _fmt(x, nd=3):
+    return "—" if x is None else f"{x:.{nd}f}"
+
+
+def print_voiceprint_table(sdata: dict) -> None:
+    """v7.7 table: per golden hotspot, real-audio voiceprint + E2CP constrained-diarization metrics."""
+    print("\n================ v7.7 GOLDEN HOTSPOTS: ACOUSTIC-LEXICAL VOICEPRINT + E2CP DIARIZATION ================")
+    print(f"{'hotspot':22s} {'audio':6s} {'vp/turns':8s} {'ML':>3s} {'CL':>3s} {'intra raw->E2CP (delta)':25s}"
+          f" {'inter raw->E2CP':17s} {'K/diar':6s} {'consist':7s} near_field_primary")
+    tot = {"ml": 0, "cl": 0, "d_intra": [], "d_inter": []}
+    for iv in sdata.get("interviews", []):
+        for idx, h in enumerate(iv.get("hotspots", []), 1):
+            mpc = h.get("mpc_analysis") or h.get("mpc_result") or {}
+            v = mpc.get("voiceprint_diarization_summary") or {}
+            if not v:
+                print(f"{iv['source'][:12]:12s} #{idx} {h.get('window_mmss', ''):8s} (no v7.7 summary)")
+                continue
+            ri, ei = v.get("mean_intra_speaker_affinity_raw"), v.get("mean_intra_speaker_affinity_e2cp")
+            ro, eo = v.get("mean_inter_speaker_affinity_raw"), v.get("mean_inter_speaker_affinity_e2cp")
+            if ri is not None and ei is not None:
+                tot["d_intra"].append(ei - ri)
+            if ro is not None and eo is not None:
+                tot["d_inter"].append(eo - ro)
+            tot["ml"] += v.get("must_link_constraints", 0)
+            tot["cl"] += v.get("cannot_link_constraints", 0)
+            mode = "wav" if v.get("voiceprint_mode") == "wav_75pct_anchor" else "proxy"
+            n = v.get("turns_with_voiceprint", 0) + v.get("turns_with_proxy_voiceprint", 0)
+            d = f"({ei - ri:+.4f})" if ri is not None and ei is not None else ""
+            print(f"{iv['source'][:12]:12s} #{idx} {h.get('window_mmss', '')[:5]:5s}  {mode:6s} "
+                  f"{v.get('turns_with_voiceprint', 0):>3d}/{n:<4d} {v.get('must_link_constraints', 0):>3d} "
+                  f"{v.get('cannot_link_constraints', 0):>3d} {_fmt(ri, 4)}->{_fmt(ei, 4)} {d:10s} "
+                  f"{_fmt(ro, 4)}->{_fmt(eo, 4)}  {v.get('estimated_speakers', 0)}/{v.get('diarizer_speakers', 0):<4d} "
+                  f"{_fmt(v.get('diarization_consistency_score')):7s} {v.get('near_field_primary_speaker')}")
+    mean = lambda xs: sum(xs) / len(xs) if xs else 0.0   # noqa: E731
+    print(f"  totals: must_link={tot['ml']} cannot_link={tot['cl']} | mean intra-speaker delta (E2CP - raw) = "
+          f"{mean(tot['d_intra']):+.4f} | mean inter-speaker delta = {mean(tot['d_inter']):+.4f}")
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
@@ -412,5 +459,10 @@ if __name__ == "__main__":
     ap.add_argument("--model", default="base")
     ap.add_argument("--reuse-reports", action="store_true",
                     help="skip the clean *_mpc_report.json rebuild and reuse existing reports")
+    ap.add_argument("--voiceprint-table", action="store_true",
+                    help="only print the v7.7 voiceprint table of the current exported samples")
     args = ap.parse_args()
+    if args.voiceprint_table:
+        print_voiceprint_table(json.loads(SAMPLES_PATH.read_text(encoding="utf-8")))
+        sys.exit(0)
     sys.exit(run_batch(args.audio_dir, args.model, args.reuse_reports))

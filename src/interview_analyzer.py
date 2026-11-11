@@ -7,6 +7,7 @@ Privacy: no voiceprint DB; speakers are anonymous speaker_1/2/3 clusters per rec
 """
 import argparse
 import bisect
+import contextlib
 import json
 import math
 import os
@@ -16,6 +17,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 import wave
 from pathlib import Path
@@ -25,15 +27,26 @@ try:
     from src.mpc_core import (AGREEMENT_TOKENS_RE, AmbientIntentPreFetcher, DialogueSessionState,
                               UtteranceTurn, XiaoZhaoMPCEngine, bi_cl_disentangle_threads, classify_mintrec_taxonomy,
                               infer_session_speaker_roles, is_agreement_only)
+    from src import mpc_core as _core
+    from src.exp1_pi_audio_check import extract_turn_voiceprint
 except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from mpc_core import (AGREEMENT_TOKENS_RE, AmbientIntentPreFetcher, DialogueSessionState,
                           UtteranceTurn, XiaoZhaoMPCEngine, bi_cl_disentangle_threads, classify_mintrec_taxonomy,
                           infer_session_speaker_roles, is_agreement_only)
+    import mpc_core as _core
+    from exp1_pi_audio_check import extract_turn_voiceprint
 
 ROOT = Path(__file__).resolve().parent.parent
 AUDIO_TMP = ROOT / "audio_tmp"
+AUDIO_RAW = ROOT / "audio_raw"
 OUT_DIR = ROOT / "transcripts_out"
+HANDOVER_DIR = ROOT / "backend_handover_package"
+DEMO_CLIP = ("interview2", "49:15-50:15")   # demo_real_clip.json source hotspot (falls back to the first wav one)
+HOTSPOT_SLICE_PAD_S = 0.5                   # slice margin around the hotspot's first / last turn
+HOTSPOT_SLICE_MAX_S = 90.0                  # a hotspot window is 60 s; its last turn may run past the window end
+SAMPLES_PRIVACY = ("anonymous speaker_1/2/3 clusters; per-turn 24-d voiceprints are session-local evidence for "
+                   "within-hotspot diarization only (no enrollment DB, no identity matching)")
 
 TARGET_SR = 16000
 N_SPEAKERS = 3
@@ -166,6 +179,104 @@ def convert_to_16k_wav(input_path: str) -> str:
 def wav_duration(wav_path: str) -> float:
     with wave.open(wav_path, "rb") as wf:
         return wf.getnframes() / float(wf.getframerate())
+
+
+def find_source_audio(stem: str) -> Optional[Path]:
+    """audio_raw/<stem>.(mp3|m4a|wav) when the original recording is present."""
+    return next((p for p in (AUDIO_RAW / f"{stem}{ext}" for ext in (".mp3", ".m4a", ".wav")) if p.exists()), None)
+
+
+def _pyav_slice(src: str, start: float, dur: float, out: str) -> None:
+    """Decode only [start, start + dur) with PyAV (the decoder faster-whisper ships) into a 16 kHz mono WAV."""
+    try:
+        import av  # optional (Mac corpus tooling only)
+    except ImportError as e:
+        raise RuntimeError("hotspot slicing needs ffmpeg or PyAV (pip install av)") from e
+    pcm, t0 = bytearray(), None
+    with av.open(src) as c:
+        st = c.streams.audio[0]
+        c.seek(int(max(0.0, start - 0.5) / st.time_base), stream=st)
+        rs = av.AudioResampler(format="s16", layout="mono", rate=TARGET_SR)
+        for fr in c.decode(st):
+            if t0 is None:
+                t0 = float(fr.pts * st.time_base) if fr.pts is not None else float(fr.time or 0.0)
+            for o in rs.resample(fr):
+                pcm += bytes(o.planes[0])[: o.samples * 2]
+            if t0 + len(pcm) / (2.0 * TARGET_SR) >= start + dur:
+                break
+    a = max(0, int(round((start - (t0 or 0.0)) * TARGET_SR))) * 2
+    with wave.open(out, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(TARGET_SR)
+        w.writeframes(bytes(pcm[a: a + int(dur * TARGET_SR) * 2]))
+
+
+@contextlib.contextmanager
+def hotspot_wav_slice(src: str, start: float, dur: float):
+    """Yield a temporary 16 kHz mono WAV of [start, start + dur) of `src` (ffmpeg -ss/-t when installed, else PyAV)
+    and delete it on exit, so audio_tmp/ never keeps a slice, let alone a multi-hundred-MB full-length WAV."""
+    AUDIO_TMP.mkdir(parents=True, exist_ok=True)
+    fd, path = tempfile.mkstemp(prefix="vp_slice_", suffix=".wav", dir=str(AUDIO_TMP))
+    os.close(fd)
+    try:
+        if shutil.which("ffmpeg"):
+            res = subprocess.run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-ss", f"{start:.3f}",
+                                  "-t", f"{dur:.3f}", "-i", src, "-ac", "1", "-ar", str(TARGET_SR),
+                                  "-sample_fmt", "s16", path], capture_output=True, text=True)
+            if res.returncode != 0:
+                raise RuntimeError(f"ffmpeg slice failed: {res.stderr.strip()}")
+        else:
+            _pyav_slice(src, start, dur, path)
+        yield path
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+
+
+VOICEPRINT_TURN_KEYS = ("rms_energy", "zcr_pitch", "near_field_score", "voiceprint_source", "voiceprint",
+                        "voiceprint_subvectors", "voiceprint_windows", "f0_hz")
+
+
+def _store_voiceprint(t: dict, vp: dict, shift: float = 0.0) -> None:
+    t.update({"rms_energy": vp["rms_energy"], "zcr_pitch": vp["zcr_pitch"], "near_field_score": vp["near_field_score"],
+              "voiceprint_source": vp["source"], "voiceprint": [round(v, 4) for v in vp["voiceprint"]],
+              "voiceprint_subvectors": [[round(v, 4) for v in sv] for sv in vp["sub_voiceprints"]],
+              "voiceprint_windows": [[round(x + shift, 3) for x in w] for w in vp["windows"]],
+              "f0_hz": vp["f0_hz"]})
+
+
+def attach_hotspot_voiceprints(turns: List[dict], audio: Optional[Path],
+                               merged_by_start: Optional[Dict[float, dict]] = None) -> dict:
+    """Per-turn v7.7 voiceprints for one hotspot, in place. With the original recording: ONE temporary 16 kHz slice
+    spanning the hotspot's turns (+-0.5 s, <= 90 s) is decoded, every turn gets its 75%-anchor x_i, anchor-window
+    rms_energy / zcr_pitch and near_field_score, and the slice is deleted immediately. Without it: the JSON-only
+    proxy from the report's per-turn rms / zcr. -> {"mode", "slice"}."""
+    if not turns:
+        return {"mode": "none", "slice": None}
+    if audio is not None:
+        st = max(0.0, min(float(t["start"]) for t in turns) - HOTSPOT_SLICE_PAD_S)
+        dur = min(max(float(t["end"]) for t in turns) + HOTSPOT_SLICE_PAD_S - st, HOTSPOT_SLICE_MAX_S)
+        with hotspot_wav_slice(str(audio), st, dur) as wav:
+            for t in turns:
+                end = min(float(t["end"]), st + dur)
+                _store_voiceprint(t, extract_turn_voiceprint(wav, float(t["start"]) - st, end - st, t["text"]), st)
+        return {"mode": _core.VP_SOURCE_WAV, "slice": f"{audio.name} [{mmss(st)}+{dur:.1f}s, temp WAV deleted]"}
+    for t in turns:
+        m = (merged_by_start or {}).get(round(float(t["start"]), 2), {})
+        _store_voiceprint(t, _core.extract_turn_voiceprint(None, start_sec=float(t["start"]), end_sec=float(t["end"]),
+                                                           rms_energy=float(m.get("rms", 0.0)),
+                                                           zcr_pitch=float(m.get("zcr", 0.0)), text=t["text"]))
+    return {"mode": "proxy (source audio absent)", "slice": None}
+
+
+def voiceprint_turn_kwargs(t: dict) -> dict:
+    """UtteranceTurn keyword arguments for an exported hotspot turn / segment."""
+    return {"end_time": float(t.get("end") or 0.0), "rms_energy": float(t.get("rms_energy") or 0.0),
+            "zcr_pitch": float(t.get("zcr_pitch") or 0.0), "voiceprint": t.get("voiceprint"),
+            "voiceprint_subvectors": t.get("voiceprint_subvectors"),
+            "voiceprint_source": t.get("voiceprint_source", ""),
+            "near_field_score": float(t.get("near_field_score", -1.0))}
 
 
 def _segment_features(wf: wave.Wave_read, rate: int, nframes: int, nch: int,
@@ -750,7 +861,7 @@ def export_extracted_samples(report_paths: List[Path], out_path: Path, top_k: in
     the backend can replay: `segments` feeds mpc_core.load_from_whisper_json; `mpc_result` is the
     XiaoZhaoMPCEngine.analyze_session verdict for that hotspot."""
     engine = XiaoZhaoMPCEngine()
-    out = {"schema": "xiaozhao.real_interview_samples.v1", "privacy": "anonymous speaker_1/2/3 clusters; no voiceprint",
+    out = {"schema": "xiaozhao.real_interview_samples.v1", "privacy": SAMPLES_PRIVACY,
            "noise_policy": "T_BACKCHANNEL_NOISE turns removed; Whisper repetition loops collapsed", "interviews": []}
     for rp in report_paths:
         r = json.loads(rp.read_text(encoding="utf-8"))
@@ -758,15 +869,18 @@ def export_extracted_samples(report_paths: List[Path], out_path: Path, top_k: in
         by_id = {t["turn_id"]: t for t in dis["turns"]}
         merged_by_start = {round(float(t["start"]), 2): t for t in r["merged_turns"]}
         stem = Path(r["source"]).stem
+        audio = find_source_audio(stem)
         rec_roles = recording_speaker_roles(r["merged_turns"])   # always re-derive: engine upgrades apply
         hotspots = []
         for h in r["golden_hotspots"][:top_k]:
             turns = [_turn_sample(by_id[i], merged_by_start) for i in h["turn_ids"]
                      if by_id[i]["thread_id"] != NOISE_THREAD]
+            vp_src = attach_hotspot_voiceprints(turns, audio, merged_by_start)
             session = DialogueSessionState(session_id=f"S_{stem}_HS{h['rank']}", case_id=f"REAL_{stem.upper()}",
                                            role_priors=rec_roles)
             session.turns = [UtteranceTurn(k, t["start"], t["speaker"], "unknown", t["text"],
-                                           addressee=t["addressee"], thread_id=t["greedy_thread_id"])
+                                           addressee=t["addressee"], thread_id=t["greedy_thread_id"],
+                                           **voiceprint_turn_kwargs(t))
                              for k, t in enumerate(turns, start=1)]
             res = engine.analyze_session(session) if session.turns else {}
             hotspots.append({
@@ -774,13 +888,15 @@ def export_extracted_samples(report_paths: List[Path], out_path: Path, top_k: in
                 "speakers": h["speakers"], "speaker_switches": h["speaker_switches"],
                 "thread_interleaves": h["thread_interleaves"], "threads": h["threads"],
                 "greedy_threads": h.get("greedy_threads", h["threads"]), "turns": turns,
-                "segments": [{"start": t["start"], "end": t["end"], "speaker": t["speaker"], "text": t["text"]}
-                             for t in turns],
+                "voiceprint_audio": vp_src,
+                "segments": [{"start": t["start"], "end": t["end"], "speaker": t["speaker"], "text": t["text"],
+                              **{k: t[k] for k in VOICEPRINT_TURN_KEYS if k in t}} for t in turns],
                 "mpc_result": {**{k: res.get(k) for k in ("detected_intents", "route_target", "safety_level",
                                                           "pi_state", "selected_turn_indices", "speaker_roles",
                                                           "speaker_role_sources",
                                                           "mintrec_transitions", "gift_graph_summary",
-                                                          "bi_cl_disentangle_summary", "gsn_flow_summary")},
+                                                          "bi_cl_disentangle_summary", "gsn_flow_summary",
+                                                          "voiceprint_diarization_summary")},
                                "cross_turn_fusion": (res.get("dst_slots") or {}).get("cross_turn_fusion"),
                                "who_to_whom_role": {d["turn_id"]: d["who_to_whom_role"]
                                                     for d in res.get("turns_detail", [])}}})
@@ -793,7 +909,22 @@ def export_extracted_samples(report_paths: List[Path], out_path: Path, top_k: in
             "recording_speaker_roles": rec_roles, "domain_intent_counts": r["domain_intent_counts"],
             "staged_packet_keys": sorted(r["ambient_staged_packets"]), "hotspots": hotspots})
     out_path.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_demo_clip(out, out_path.parent / "demo_real_clip.json")
     return out
+
+
+def write_demo_clip(samples: dict, path: Path) -> Optional[dict]:
+    """demo_real_clip.json: the DEMO_CLIP hotspot (else the first with real-audio voiceprints) in Whisper segment
+    format, voiceprint fields included, ready for mpc_core.load_from_whisper_json."""
+    hs = [(iv["source"], h) for iv in samples["interviews"] for h in iv["hotspots"]]
+    pick = next(((s, h) for s, h in hs if (s, h["window"]) == DEMO_CLIP), None) or next(
+        ((s, h) for s, h in hs if h.get("voiceprint_audio", {}).get("mode") == _core.VP_SOURCE_WAV), None)
+    if pick is None:
+        return None
+    clip = {"source": pick[0], "window_mmss": pick[1]["window"], "privacy": SAMPLES_PRIVACY,
+            "voiceprint_audio": pick[1].get("voiceprint_audio"), "segments": pick[1]["segments"]}
+    path.write_text(json.dumps(clip, ensure_ascii=False, indent=2), encoding="utf-8")
+    return clip
 
 
 def analyze_file(path: str, model_size: str, max_minutes: float = 0.0) -> int:
@@ -802,11 +933,21 @@ def analyze_file(path: str, model_size: str, max_minutes: float = 0.0) -> int:
     if not p.exists():
         print(f"[ERR] not found: {path}")
         return 2
+    pre_existing = {str(f) for f in AUDIO_TMP.glob(f"{p.stem}_*.wav")}
     try:
         wav = convert_to_16k_wav(str(p))
     except Exception as e:
         print(f"[ERR] conversion: {e}")
         return 2
+    try:
+        return _analyze_wav(p, wav, model_size, max_minutes, t_start)
+    finally:   # full-length 16 kHz WAVs are regenerated on demand: drop the ones this run created
+        for f in AUDIO_TMP.glob(f"{p.stem}_*.wav"):
+            if str(f) not in pre_existing and str(f) != str(p):
+                f.unlink()
+
+
+def _analyze_wav(p: Path, wav: str, model_size: str, max_minutes: float, t_start: float) -> int:
     try:
         segments, note = load_or_transcribe(p, wav, model_size, max_minutes)
     except ImportError:
@@ -910,6 +1051,52 @@ def _unit_checks() -> None:
     assert th[3] == th[1], f"keyword centroid join: {th}"
 
 
+def _voiceprint_slice_check() -> None:
+    """v7.7 hotspot path on a synthetic 'recording': temp slice -> 75%-anchor voiceprints -> slice deleted."""
+    lo, hi = _core.TEST_VOICE_LOW, _core.TEST_VOICE_HIGH
+    pcm = ([0] * 16000 + _core.synth_test_voice(lo, 3.0, 31) + _core.synth_test_voice(hi, 3.0, 32)
+           + _core.synth_test_voice(lo, 3.0, 33) + [0] * 8000)
+    src = AUDIO_TMP / "interview_vp_selftest_src.wav"
+    try:
+        with wave.open(str(src), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(TARGET_SR)
+            w.writeframes(struct.pack(f"<{len(pcm)}h", *pcm))
+        turns = [{"start": 1.0, "end": 4.0, "speaker": "speaker_1", "text": "我們後端的知識庫系統"},
+                 {"start": 4.0, "end": 7.0, "speaker": "speaker_2", "text": "那居督要怎麼綁定嗎？"},
+                 {"start": 7.0, "end": 10.0, "speaker": "speaker_1", "text": "可以，我們後端會處理"}]
+        have_decoder = bool(shutil.which("ffmpeg"))
+        try:
+            import av  # noqa: F401
+            have_decoder = True
+        except ImportError:
+            pass
+        if have_decoder:
+            info = attach_hotspot_voiceprints(turns, src)
+            assert info["mode"] == _core.VP_SOURCE_WAV and "deleted" in info["slice"], info
+            assert all(t["voiceprint_source"] == _core.VP_SOURCE_WAV and len(t["voiceprint"]) == _core.VP_DIM
+                       for t in turns)
+            assert turns[0]["voiceprint_windows"][0][0] >= 1.0 + 0.25, turns[0]["voiceprint_windows"]   # absolute
+            same = _core._vp_cos(turns[0]["voiceprint"], turns[2]["voiceprint"])
+            cross = _core._vp_cos(turns[0]["voiceprint"], turns[1]["voiceprint"])
+            assert same > 0.9 > 0.5 > cross, (same, cross)
+            assert turns[0]["rms_energy"] > 1000 and 100 < turns[0]["f0_hz"] < 125, turns[0]
+            sess = DialogueSessionState("S_VP_SLICE", "C", turns=[
+                UtteranceTurn(k, t["start"], t["speaker"], "unknown", t["text"], **voiceprint_turn_kwargs(t))
+                for k, t in enumerate(turns, 1)])
+            vs = XiaoZhaoMPCEngine().analyze_session(sess)["voiceprint_diarization_summary"]
+            assert vs["turns_with_voiceprint"] == 3 and vs["diarization_consistency_score"] == 1.0, vs
+        prox = [dict(t) for t in turns]
+        info = attach_hotspot_voiceprints(prox, None, {1.0: {"rms": 2100.0, "zcr": 0.06}})
+        assert info["mode"].startswith("proxy") and prox[0]["voiceprint_source"] == _core.VP_SOURCE_PROXY_AC
+        assert prox[1]["voiceprint_source"] == _core.VP_SOURCE_PROXY_TEXT, prox[1]
+    finally:
+        if src.exists():
+            src.unlink()
+    assert not list(AUDIO_TMP.glob("vp_slice_*.wav")), "hotspot slices must never be left in audio_tmp/"
+
+
 def quiet_test() -> int:
     _unit_checks()
     AUDIO_TMP.mkdir(parents=True, exist_ok=True)
@@ -937,6 +1124,7 @@ def quiet_test() -> int:
     assert amb["mintrec_counts"].get("Agree", 0) >= 1, amb["mintrec_counts"]
     assert amb["ambient_staged_count"] >= 1 and "SUPERVISOR_DIVERSE_FEEDBACK" in amb["domain_intent_counts"], amb
     assert all("mintrec" in t for t in merged), "each merged turn should carry its MIntRec label"
+    _voiceprint_slice_check()
     print("INTERVIEW_ANALYZER_OK")
     return 0
 

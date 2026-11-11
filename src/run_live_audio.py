@@ -10,13 +10,13 @@ import uuid
 try:
     from src.mpc_core import DialogueSessionState, UtteranceTurn, XiaoZhaoMPCEngine, load_from_whisper_json
     from src.iot_api_client import XiaoZhaoIoTClient
-    from src.exp1_pi_audio_check import compute_wav_acoustics, record_audio
+    from src.exp1_pi_audio_check import compute_wav_acoustics, extract_turn_voiceprint, record_audio
     from src.config import XIAOZHAO_WHISPER_API_TIMEOUT, XIAOZHAO_WHISPER_API_URL
 except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from mpc_core import DialogueSessionState, UtteranceTurn, XiaoZhaoMPCEngine, load_from_whisper_json
     from iot_api_client import XiaoZhaoIoTClient
-    from exp1_pi_audio_check import compute_wav_acoustics, record_audio
+    from exp1_pi_audio_check import compute_wav_acoustics, extract_turn_voiceprint, record_audio
     from config import XIAOZHAO_WHISPER_API_TIMEOUT, XIAOZHAO_WHISPER_API_URL
 
 _SPEAKER_RE = re.compile(r"^speaker_\d+$")
@@ -69,13 +69,19 @@ def transcribe_via_xiaozhao_whisper_api(wav_path: str, api_url: str,
 
 
 def attach_acoustics(wav_path: str, segments: list) -> list:
-    """Per-segment rms_energy / zcr_pitch from the segment's own [start, end) span of the local WAV."""
+    """Per-segment rms_energy / zcr_pitch from the segment's own [start, end) span of the local WAV, plus the v7.7
+    turn voiceprint (75%-anchor x_i, Must-Linked sub-vectors, near_field_score). The vectors stay on the Pi: the
+    MPC payload only carries voiceprint_diarization_summary and per-turn refined speaker labels."""
     for i, seg in enumerate(segments):
         end = seg.get("end")
         if end is None:   # open-ended: up to the next segment's start (or EOF)
             end = segments[i + 1]["start"] if i + 1 < len(segments) else None
         ac = compute_wav_acoustics(wav_path, float(seg.get("start", 0.0)), None if end is None else float(end))
         seg["rms_energy"], seg["zcr_pitch"] = ac["rms_energy"], ac["zcr_pitch"]
+        vp = extract_turn_voiceprint(wav_path, float(seg.get("start", 0.0)), None if end is None else float(end),
+                                     seg.get("text", ""))
+        seg.update(end=seg.get("end", end), voiceprint=vp["voiceprint"], voiceprint_subvectors=vp["sub_voiceprints"],
+                   voiceprint_source=vp["source"], near_field_score=vp["near_field_score"])
     return segments
 
 
@@ -123,7 +129,11 @@ def transcribe_wav_to_session(wav_path: str, session_id: str = "S_LIVE_AUDIO", c
             speaker = seg["speaker"]
         turns.append(UtteranceTurn(idx, float(seg["start"]), speaker, role, text,
                                    rms_energy=float(seg.get("rms_energy", 0.0)),
-                                   zcr_pitch=float(seg.get("zcr_pitch", 0.0))))
+                                   zcr_pitch=float(seg.get("zcr_pitch", 0.0)),
+                                   end_time=float(seg.get("end") or 0.0), voiceprint=seg.get("voiceprint"),
+                                   voiceprint_subvectors=seg.get("voiceprint_subvectors"),
+                                   voiceprint_source=seg.get("voiceprint_source", ""),
+                                   near_field_score=float(seg.get("near_field_score", -1.0))))
     session = DialogueSessionState(session_id=session_id, case_id=case_id, turns=turns)
     session.stt_source = source
     return session
@@ -175,7 +185,10 @@ def _api_self_test() -> None:
         assert sess.turns[0].speaker_id == "speaker_2" and sess.turns[1].speaker_id == "speaker_1"
         for t in sess.turns:   # synthetic 440 Hz sine: RMS ~ 11585, ZCR ~ 0.055
             assert abs(t.rms_energy - 11585) < 50 and abs(t.zcr_pitch - 0.055) < 0.003, t
+            assert t.voiceprint_source == "wav_75pct_anchor" and len(t.voiceprint) == 24 and t.end_time > t.timestamp
         assert run_pipeline(sess, simulate_server_ok=True)["sync_status"] == "SYNCED_TO_BACKEND"
+        _vp = XiaoZhaoMPCEngine().analyze_session(sess)["voiceprint_diarization_summary"]
+        assert _vp["turns_with_voiceprint"] == 2 and _vp["voiceprint_mode"] == "wav_75pct_anchor", _vp
     finally:
         srv.shutdown()
         srv.server_close()

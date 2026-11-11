@@ -1,11 +1,11 @@
 # 小照 (CareCopilot) 多人多輪意圖偵測模組 — 後端對接指南
 
 ## 1. 檔案清單
-- `mpc_core.py`: 核心演算法（受話者辨識、TD/MF 與 Bi-CL 話題解纏結、GIFT/GSN 圖傳播、OOD/P0 安全路由）。零外部套件依賴，可直接複製進後端專案目錄。
+- `mpc_core.py`: 核心演算法（受話者辨識、TD/MF 與 Bi-CL 話題解纏結、GIFT/GSN 圖傳播、v7.7 聲紋 + E2CP 約束式說話者分群、OOD/P0 安全路由）。零外部套件依賴（只用 Python 標準函式庫），可直接複製進後端專案目錄。
 - `BACKEND_INTEGRATION.md`: 本文件。
-- `demo_real_clip.json`: Whisper STT 輸入格式範本（頂層 `{"segments": [...]}`），內容取自真實訪談 interview2 49:15 熱點，可直接用於下方快速呼叫範例。
+- `demo_real_clip.json`: Whisper STT 輸入格式範本（頂層 `{"segments": [...]}`），內容取自真實訪談 interview2 49:15 熱點，可直接用於下方快速呼叫範例。v7.7 起每個 segment 另帶真實音訊的聲紋欄位（見第 8 節），由 `interview_analyzer.py --export-samples` 自動產生。
 - `mpc_5_scenarios_handover.json`: 5 大長照情境經本引擎分析後的標準輸出 JSON（供對齊 DB 與 LINE LIFF 欄位），即 `/api/iot/v1/utterances` 的 request body 格式。
-- `real_interviews_extracted_samples.json`: 三場真實未剪輯訪談（interview1 / interview2 / interview3_full）各前 3 名多人熱點對話（共 9 個），已移除 `T_BACKCHANNEL_NOISE` 附和雜訊與 Whisper 重複幻覺。每個熱點的 `segments` 包成 `{"segments": [...]}` 後即可餵給 `load_from_whisper_json`；`mpc_result` 為本引擎的分析結果，可作為回歸測試基準。
+- `real_interviews_extracted_samples.json`: 三場真實未剪輯訪談（interview1 / interview2 / interview3_full）各前 3 名多人熱點對話（共 9 個），已移除 `T_BACKCHANNEL_NOISE` 附和雜訊與 Whisper 重複幻覺。每個熱點的 `segments` 包成 `{"segments": [...]}` 後即可餵給 `load_from_whisper_json`；`mpc_result` 為本引擎的分析結果，可作為回歸測試基準。v7.7 起 9 個熱點的 `turns` / `segments` 皆含由原始錄音切出 60 秒片段計算的每輪聲紋欄位，`mpc_result.voiceprint_diarization_summary` 為該熱點的分群結果。
 
 ### 樹莓派 → 後端 HTTP 介面
 | 端點 | Request body | 說明 |
@@ -104,3 +104,56 @@ Refinement runs as unsupervised EM: each turn is reassigned to the nearest leave
 | `gsn_flow_summary.parallel_sibling_branches` | 有 ≥ 2 個平行回覆的父輪數（GSN Fig 1）。 |
 | `gsn_flow_summary.multi_hop_paths_3iter` | E ∪ U 中最短距離為 2–3 跳的有序 (i, j) 配對數。 |
 | `gsn_flow_summary.mean_eta_reply_weight` / `mean_lambda_speaker_weight` | 6 次迭代中所有 η_i / λ_i 的平均值。 |
+
+## 8. v7.7 Acoustic-lexical voiceprint + E2CP constrained diarization
+Sources: ECAPA-TDNN (Desplanques et al., Interspeech 2020); Turn-to-Diarize (Xia et al., ICASSP 2022); Park & Georgiou (USC), *Multimodal Speaker Segmentation and Diarization using Lexical and Acoustic Cues*; M2MeT / AliMeeting (Yu et al., ICASSP 2022); AISHELL-4 (Fu et al.).
+Everything is pure Python standard library, so the Pi needs no ML packages. The diarizer's `speaker_N` labels stay authoritative for roles and who→whom. v7.7 adds a continuous same-speaker confidence and flags turns whose voiceprint disagrees with their label.
+
+**Turn voiceprint** (`extract_turn_voiceprint`; WAV wrapper in the Pi's `exp1_pi_audio_check.py`):
+- **Sampling:** a 0.25 s collar is trimmed at both turn boundaries (turns ≥ 0.8 s). Analysis covers [0.50, 0.90] of the turn, around its 75% anchor. A turn > 6 s is split into ⌈dur / 6⌉ pieces, one sub-vector each, chained by Must-Links.
+- **Frames:** 25 ms window, 10 ms hop, ≤ 96 frames per window. Each frame gives 13 cepstra (DCT of 20 log mel bands), 4 band-energy shares, spectral centroid, flatness, ZCR, cepstral F0 and voicing.
+- **Pooling:** an SE-style per-channel reliability gate, then channel-dependent attentive statistics pooling (weighted mean and std; attention favours loud, voiced frames near the anchor). The result is a 24-d L2-normalised `x_i`. This is a training-free analogue: there are no learned weights.
+- **`near_field_score` (0..1):** headset or closest talker vs. a 1–3 m interlocutor. It combines modulation depth, top-band share and flatness, plus a mild level term, because device gain varies by about 25 dB.
+- **JSON-only input:** a deterministic proxy built from `rms_energy`, `zcr_pitch`, speech rate and duration.
+
+**Constrained diarization** (`constrained_voiceprint_diarize`, run inside `analyze_session`):
+- **Raw affinity:** A_ij = (1 + cos(x_i, x_j)) / 2.
+- **Cannot-Link (−1):**
+  - a question answered by a yes/no-type reply (adjacent, or along a GIFT reply-to edge);
+  - a request, proposal, advice or complaint answered by a response token (可以 / 好 / 沒問題 / OK …);
+  - a vocative addressed to another role (請主任 / 督導你 …);
+  - a floor handoff to the next turn.
+- **Must-Link (+1):**
+  - sub-windows of a > 6 s turn;
+  - a same-label discourse latch (a connective-opened continuation across a backchannel, or a dangling clause within 1.5 s);
+  - a same label repeating one role's first-person self-reference (我們督導 / 我們後端 …).
+- **E2CP (α = 0.4):** Q* = (1 − α)² (I − αL̄)⁻¹ Z (I − αL̄)⁻¹ over L̄ = D^-½ A D^-½. Then Â_ij = 1 − (1 − Q*_ij)(1 − A_ij) when Q* ≥ 0, else (1 + Q*_ij) A_ij.
+- **Clustering:** row-wise 50th-percentile soft threshold, average symmetrisation, eigengap K (K ≥ 2 when ≥ 2 diarizer labels and ≥ 4 nodes), spectral k-means, then a flip-aligned 6-turn sliding-window majority vote. Clusters are mapped onto `speaker_N` by overlap. Sessions over 48 nodes run in chronological blocks.
+- **Downstream weighting:** same-speaker probability P_ij = c·Â_ij + (1 − c)·[s_i = s_j], where c = 0.5 for WAV voiceprints, 0.25 for acoustic proxies and 0 for text-only. P_ij weights Bi-CL's speaker-continuity term and GSN's speaker adjacency **U** in place of a hard 0/1. **Text-only sessions produce exactly the v7.6 output**, plus the new summary fields.
+
+**Privacy:** vectors are session-local evidence for grouping the turns of one session. There is no enrollment DB and no identity matching. **`analyze_session()` never puts raw vectors in the payload.** On the Pi they stay in memory. Only the 9 exported research hotspots store per-turn vectors.
+
+Whisper segment input (`load_from_whisper_json`) accepts these optional fields: `end`, `rms_energy`, `zcr_pitch`, `voiceprint` (24 floats), `voiceprint_subvectors`, `voiceprint_source`, `near_field_score`.
+
+| 欄位 | 說明 |
+|---|---|
+| `voiceprint_diarization_summary.voiceprint_mode` | `wav_75pct_anchor`（全部真實音訊）/ `mixed` / `proxy_acoustic` / `proxy_text`（純文字，分群不影響下游）。 |
+| `turns_with_voiceprint` / `turns_with_proxy_voiceprint` | 有真實音訊聲紋 / 只有代理向量的輪數。 |
+| `must_link_constraints` / `cannot_link_constraints` / `constraints_by_reason` | 節點對約束數與原因統計（`long_turn_split`、`discourse_latch`、`lexical_self_consistency`、`qa_turn_taking`、`adjacency_pair_response`、`vocative_addressing`、`floor_handoff`）。`constraints` 列出前 60 筆。 |
+| `mean_intra_speaker_affinity_raw` / `_e2cp` | 同一 diarizer 標籤的輪對平均親和度（E2CP 前 / 後）；`mean_inter_speaker_affinity_*` 為不同標籤者。 |
+| `estimated_speakers` / `diarizer_speakers` | 特徵值間隙估計的說話者數 / 上游標籤數。 |
+| `diarization_consistency_score` | 有聲學證據的輪中，聲紋分群（對應到 `speaker_N` 後）與 diarizer 標籤一致的比例；純文字時為 `null`。 |
+| `relabel_candidates` | 聲紋分群與標籤不一致的輪（`turn_id`、`diarizer`、`voiceprint_speaker`），可在 LINE LIFF 確認時提示。 |
+| `near_field_primary_speaker` / `near_field_by_speaker` | 平均近場分數最高的標籤（配戴耳機 / 最靠近麥克風者）與各標籤平均。 |
+| `turns_detail[*].refined_speaker` / `voiceprint_source` / `near_field_score` | 每輪的聲紋分群標籤、來源與近場分數。 |
+| `gsn_flow_summary.speaker_edge_weighting` / `mean_u_speaker_confidence` | `voiceprint_e2cp` 或 `hard_0_1`；**U** 邊的平均同說話者信心。 |
+| `bi_cl_disentangle_summary.speaker_continuity_weighting` | `voiceprint_e2cp` 或 `diarizer_label`。 |
+
+Real-audio results on the 9 golden hotspots:
+- **Coverage:** all 9 hotspots have real voiceprints (86 turns).
+- **Constraints:** 54 Must-Links and 6 Cannot-Links.
+- **E2CP shift:** intra-speaker affinity rises by +0.005 on average after E2CP; inter-speaker affinity moves by +0.002.
+- **Agreement:** voiceprint clusters agree with the upstream ZCR/RMS diarizer on 50–73% of turns.
+- **No verdict changes:** routes, intents, roles, transitions and consensus are unchanged on all 9 hotspots.
+
+These are training-free features on a single far-field mic: treat `relabel_candidates` as review hints, not corrections.
