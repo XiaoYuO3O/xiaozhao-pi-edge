@@ -408,6 +408,13 @@ def _catalog_hits(turns: List[UtteranceTurn], catalog, roles: Dict[str, str], wh
     return sorted(found.values(), key=lambda d: d["turn_id"])
 
 
+def trailing_refusal(transitions: List[Dict], resolutions: List[Dict]) -> bool:
+    """A REQUEST_TO_REFUSAL chain blocks consensus only while it is unanswered: no resolution is proposed after
+    the refusal turn (to_turn >= the last resolution turn). A later resolution answers the objection."""
+    last_res = max((r["turn_id"] for r in resolutions), default=0)
+    return any(x["type"] == "REQUEST_TO_REFUSAL" and x["to_turn"] >= last_res for x in transitions)
+
+
 def aggregate_cross_turn_slots(turns: List[UtteranceTurn], speaker_roles: Dict[str, str],
                                thread_of: Optional[Dict[int, str]] = None,
                                transitions: Optional[List[Dict]] = None,
@@ -448,7 +455,7 @@ def aggregate_cross_turn_slots(turns: List[UtteranceTurn], speaker_roles: Dict[s
     if safety_level == "CRITICAL_P0" or any(x["type"] == "CRISIS_ESCALATION_CHAIN" and x.get("live_hazard", True)
                                             for x in dom_tr):
         state = "IMMEDIATE_ESCALATION"
-    elif resolutions and len(speakers) >= 2 and not (dom_tr and dom_tr[-1]["type"] == "REQUEST_TO_REFUSAL"):
+    elif resolutions and len(speakers) >= 2 and not trailing_refusal(dom_tr, resolutions):
         state = "CONSENSUS_ACTIONABLE"
     else:
         state = "OPEN_DISCUSSION"
@@ -2876,6 +2883,12 @@ if __name__ == "__main__":
             UtteranceTurn(3, 2.0, "speaker_1", "unknown", "不用啦", thread_id="T1")]
     assert aggregate_cross_turn_slots(_ref, {}, transitions=detect_mintrec_transitions(_ref))["consensus_state"] \
         == "OPEN_DISCUSSION", "trailing refusal blocks consensus"
+    _ans = [UtteranceTurn(1, 0.0, "speaker_1", "unknown", "案家要我代購成藥", thread_id="T1"),
+            UtteranceTurn(2, 1.0, "speaker_2", "unknown", "不用啦", thread_id="T1"),
+            UtteranceTurn(3, 2.0, "speaker_2", "unknown", "請你用APP回報", thread_id="T1")]
+    _ans_tr = [{"type": "REQUEST_TO_REFUSAL", "thread_id": "T1", "from_turn": 1, "to_turn": 2}]
+    assert aggregate_cross_turn_slots(_ans, {}, transitions=_ans_tr)["consensus_state"] == "CONSENSUS_ACTIONABLE", \
+        "a resolution proposed after the refusal answers it"
     assert "cross_turn_fusion" in _mr["dst_slots"] and "cross_turn_fusion" in results[0]["dst_slots"]
     json.dumps(_mr, ensure_ascii=False)   # payload stays JSON-serialisable
 

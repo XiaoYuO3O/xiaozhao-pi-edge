@@ -5,12 +5,18 @@
     python3 src/train_val_test_eval.py --write-core    # ... and write the Train-fitted VP_* params into mpc_core
     python3 src/train_val_test_eval.py --latency-only  # stdlib-only latency / memory probe (runs on the Pi)
 
-Protocol (the professor's "20 min -> first 10 min Train / next 5 min Val / last 5 min Test"):
+Protocol — two chronological split schemes, run side by side (SCHEMES):
+  * 50_25_25 = the professor's example ("20 min -> first 10 min Train / next 5 min Val / last 5 min Test", 10:5:5);
+    80_10_10 = the lab whiteboard standard split (8:1:1).
   * Within-recording chronological split. For each Jia-An recording (interview1, interview2, interview3_full) the
-    labelled golden-window turns are put in time order: first 50 % Train, next 25 % Val, final 25 % Test. A window
+    labelled golden-window turns are put in time order: first 50 % (80 %) Train, next 25 % (10 %) Val, final 25 %
+    (10 %) Test. A window
     that straddles a boundary is cut into per-split segments; segments are the evaluation units, so no split ever
     sees a later turn of its recording (zero future leakage). The 5 scripted benchmark dialogues are not
     recordings: they form a separate fixed regression set (Table C) and are never trained on.
+  * Full-recording Train evidence: besides the labelled Train turns, each recording's unlabelled merged turns that
+    start before its Val cut feed (i) a cue-inferred speaker -> role prior (fills speakers without a labelled Train
+    role) and (ii) up to FULLREC_VP_MAX extra turns of voiceprint channel statistics. Nothing after the Val cut.
   * Interleaved windows. Inside each split, every pair of segments (>= 3 turns, different windows) is merged into
     one interleaved session (2-turn blocks, A A B B ...); its upstream greedy thread / addressee hints are recomputed
     by the analyzer's own greedy stage on the interleaved order, so the pipeline must disentangle two topics. Gold threads / reply-to links come from the source segments. Segments of
@@ -23,13 +29,16 @@ Protocol (the professor's "20 min -> first 10 min Train / next 5 min Val / last 
     voiceprint prototypes (M5, evaluation-only, in memory, never exported).
   * Validation: 3 x 4 x 4 grid over (BICL_MERGE_SIM, GSN iterations N, E2CP alpha) on Val segments + interleaved
     Val sessions; J = mean(thread F, addressee acc, slot F1, issue->resolution link F1, speaker-cluster F).
-  * Test: the Val-selected configuration, scored once (Tables A, B); Table C = scripted regression set.
+  * Test: the Val-selected configuration, scored once (Tables A, B). Table C = audio segmentation / noise
+    statistics of the 3.6 h corpus + data simulation (synthetic boundary bleed / overlap SNR, near- vs far-field,
+    interleaved multi-party sessions, 5 scripted home-care dialogues); it does not depend on the split.
 
 Labels: ground_truth_* are DRAFT labels (DRAFT_LABELS: text-level labels drafted from the cleaned transcripts;
 speaker = the acoustic diarizer label). Rows marked human_verified=1 in the exported CSV override the drafts.
 """
 import argparse
 import array
+import copy
 import csv
 import dataclasses
 import itertools
@@ -59,7 +68,13 @@ DATASET_CSV = OUT_DIR / "annotated_ground_truth_dataset.csv"
 RESULTS_JSON = OUT_DIR / "train_val_test_results.json"
 TABLES_MD = OUT_DIR / "model_comparison_tables.md"
 SPLITS = ("train", "val", "test")
-SPLIT_SHARE = {"train": 0.50, "val": 0.25, "test": 0.25}
+# (scheme id, provenance, shares, ratio label)
+SCHEMES = (("50_25_25", "Professor's example", {"train": 0.50, "val": 0.25, "test": 0.25}, "10 : 5 : 5"),
+           ("80_10_10", "Lab whiteboard standard split", {"train": 0.80, "val": 0.10, "test": 0.10}, "8 : 1 : 1"))
+PRIMARY_SCHEME = "50_25_25"   # its voiceprints go into the exported dataset / --write-core
+FULLREC_VP_MAX = 24           # extra unlabelled pre-cut turns per recording for the voiceprint channel statistics
+FULLREC_MIN_DUR = 1.5
+JIA_AN = ("interview1", "interview2", "interview3_full")
 INTERLEAVE_MIN_TURNS = 3
 INTERLEAVE_BLOCK = 2
 GRID_BICL = (0.30, 0.45, 0.65)
@@ -277,9 +292,9 @@ def import_verified(units: List[dict], path: Path = DATASET_CSV) -> int:
     return n
 
 
-def chrono_split(windows: List[dict]) -> Tuple[List[dict], Dict[str, Dict[str, Any]]]:
-    """Per recording: labelled turns in time order -> first 50 % Train, next 25 % Val, last 25 % Test. Every window
-    is cut into contiguous per-split segments (the evaluation units). -> (segments, per-recording cut report)."""
+def chrono_split(windows: List[dict], share: Dict[str, float]) -> Tuple[List[dict], Dict[str, Dict[str, Any]]]:
+    """Per recording: labelled turns in time order -> first share['train'] Train, next share['val'] Val, rest Test.
+    Every window is cut into contiguous per-split segments (the evaluation units). -> (segments, cut report)."""
     by_src: Dict[str, List[dict]] = {}
     for w in windows:
         by_src.setdefault(w["source"], []).append(w)
@@ -288,12 +303,13 @@ def chrono_split(windows: List[dict]) -> Tuple[List[dict], Dict[str, Dict[str, A
         wins.sort(key=lambda w: w["turns"][0]["start"])
         turns = [t for w in wins for t in w["turns"]]
         n = len(turns)
-        c1 = int(round(SPLIT_SHARE["train"] * n))
-        c2 = int(round((SPLIT_SHARE["train"] + SPLIT_SHARE["val"]) * n))
+        c1 = int(round(share["train"] * n))
+        c2 = min(n - 1, max(c1 + 1, int(round((share["train"] + share["val"]) * n))))
         for i, t in enumerate(turns):
             t["split"] = "train" if i < c1 else "val" if i < c2 else "test"
         cuts[src] = {"turns": n, "train": c1, "val": c2 - c1, "test": n - c2,
-                     "val_starts": _mmss(turns[c1]["start"]), "test_starts": _mmss(turns[c2]["start"])}
+                     "val_starts": _mmss(turns[c1]["start"]), "test_starts": _mmss(turns[c2]["start"]),
+                     "val_start_sec": turns[c1]["start"]}
         for w in wins:
             for s in SPLITS:
                 ts = [t for t in w["turns"] if t["split"] == s]
@@ -394,6 +410,84 @@ def record_pool(sink: List):
         core._vp_pool = orig
 
 
+VP_CACHE_PATH = ROOT / "audio_tmp" / "eval_voiceprint_cache.json"
+VP_CACHE_VERSION = 1
+_VP_CACHE: Dict[str, Any] = {}
+_VP_CACHE_STATE: Dict[str, Any] = {"loaded": False, "dirty": False, "hits": 0, "misses": 0, "new": set()}
+
+
+def vp_cache() -> Dict[str, Any]:
+    """Per-turn extract_window records keyed by (turn, span, slice offset, VP params, mpc_core voiceprint code
+    hash). Exact: JSON floats round-trip, and any change to the extractor's code or params is a different key."""
+    if not _VP_CACHE_STATE["loaded"]:
+        _VP_CACHE_STATE["loaded"] = True
+        try:
+            d = json.loads(VP_CACHE_PATH.read_text(encoding="utf-8"))
+            if d.get("version") == VP_CACHE_VERSION:
+                _VP_CACHE.update(d["records"])
+        except (OSError, ValueError, KeyError):
+            pass
+    return _VP_CACHE
+
+
+def save_vp_cache() -> None:
+    """Raw frames are kept only for records extracted with the shipped params (the only ones
+    fit_channel_priors reads); every other record keeps its pooled mu / sigma."""
+    keep = params_hash(shipped_vp_params())
+    for ck, rec in _VP_CACHE.items():
+        if isinstance(rec, dict) and "pool" in rec and ck.split("|")[3] != keep and rec["pool"] \
+                and rec["pool"][0][0]:
+            rec["pool"] = [[[], [], out] for _, _, out in rec["pool"]]
+            _VP_CACHE_STATE["dirty"] = True
+    if _VP_CACHE_STATE["dirty"]:
+        VP_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = VP_CACHE_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"version": VP_CACHE_VERSION, "records": _VP_CACHE}, separators=(",", ":")),
+                       encoding="utf-8")
+        tmp.replace(VP_CACHE_PATH)
+        _VP_CACHE_STATE["dirty"] = False
+
+
+_CODE_HASH: List[str] = []
+
+
+def vp_code_hash() -> str:
+    """Hash of the voiceprint extractor source (+ its constants) so an edited extractor invalidates the cache."""
+    if not _CODE_HASH:
+        import hashlib
+        import inspect
+        parts = [inspect.getsource(f) for f in (core.extract_turn_voiceprint, core.voiceprint_windows, core._vp_pool,
+                                                 core._vp_near_field)]
+        parts += [repr(getattr(core, k)) for k in dir(core) if k.startswith("VP_") and k not in VP_KEYS]
+        _CODE_HASH.append(hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()[:12])
+    return _CODE_HASH[0]
+
+
+def params_hash(params: Dict[str, List[float]]) -> str:
+    import hashlib
+    return hashlib.sha1(json.dumps({k: params.get(k) for k in VP_KEYS}, sort_keys=True).encode()).hexdigest()[:12]
+
+
+class LazyAudio:
+    """A window's decoded PCM, decoded only on the first voiceprint-cache miss."""
+
+    def __init__(self, unit: dict):
+        from interview_analyzer import HOTSPOT_SLICE_PAD_S
+        self.unit = unit
+        self.st = max(0.0, min(t["start"] for t in unit["turns"]) - HOTSPOT_SLICE_PAD_S)
+        self._pcm: Optional[Tuple[array.array, int, float]] = None
+
+    def get(self) -> Tuple[array.array, int, float]:
+        if self._pcm is None:
+            self._pcm = load_window_pcm(self.unit)
+        return self._pcm
+
+
+def lazy_audio(unit: dict) -> Optional[LazyAudio]:
+    from interview_analyzer import find_source_audio
+    return LazyAudio(unit) if find_source_audio(unit["source"]) is not None else None
+
+
 def load_window_pcm(unit: dict) -> Optional[Tuple[array.array, int, float]]:
     from interview_analyzer import (HOTSPOT_SLICE_MAX_S, HOTSPOT_SLICE_PAD_S, find_source_audio,
                                     hotspot_wav_slice)
@@ -427,16 +521,29 @@ def _rms_zcr(seg) -> Tuple[float, float]:
     return rms, sum(1 for a, b in zip(seg, seg[1:]) if (a >= 0) != (b >= 0)) / (n - 1)
 
 
-def extract_window(win: dict, audio: Tuple[array.array, int, float], params: Dict[str, List[float]],
-                   only: Optional[set] = None) -> Dict[str, dict]:
-    """turn key -> voiceprint dict + per-piece pooling records (raw frames, mu / sigma) + per-piece rms / zcr."""
-    pcm, rate, st = audio
-    span = len(pcm) / float(rate)
+def extract_window(win: dict, audio: LazyAudio, params: Dict[str, List[float]],
+                   only: Optional[set] = None, frames: bool = False) -> Dict[str, dict]:
+    """turn key -> voiceprint dict + per-piece pooling records (raw frames, mu / sigma) + per-piece rms / zcr.
+    Served from the voiceprint cache when the same turn was extracted with the same params and extractor code."""
+    cache = vp_cache()
+    tag = f"{params_hash(params)}|{vp_code_hash()}|{audio.st:.3f}"
     out = {}
+    todo = []
+    for t in win["turns"]:
+        if only is not None and t["key"] not in only:
+            continue
+        ck = f"{t['key']}|{t['start']:.3f}|{t['end']:.3f}|{tag}"
+        if ck in cache and not (frames and cache[ck]["pool"] and not cache[ck]["pool"][0][0]):
+            out[t["key"]] = cache[ck]
+            _VP_CACHE_STATE["hits"] += 1
+        else:
+            todo.append((t, ck))
+    if not todo:
+        return out
+    pcm, rate, st = audio.get()
+    span = len(pcm) / float(rate)
     with vp_params(params):
-        for t in win["turns"]:
-            if only is not None and t["key"] not in only:
-                continue
+        for t, ck in todo:
             s, e = t["start"] - st, min(t["end"], st + span) - st
             a, b = max(0, int(s * rate)), max(0, int(e * rate))
             seg = pcm[a:b]
@@ -449,8 +556,29 @@ def extract_window(win: dict, audio: Tuple[array.array, int, float], params: Dic
             t1 = time.perf_counter()
             pieces_ac = [_rms_zcr(pcm[int(ws * rate):int(we * rate)]) for ws, we, _ in vp["windows"]]
             ac_ms = 1000.0 * (time.perf_counter() - t1)
-            out[t["key"]] = {"vp": vp, "pool": sink, "pieces_ac": pieces_ac, "vp_ms": vp_ms, "ac_ms": ac_ms}
+            rec = json.loads(json.dumps({"vp": vp, "pool": sink, "pieces_ac": pieces_ac, "vp_ms": vp_ms,
+                                         "ac_ms": ac_ms}))   # same JSON shape on a miss as on a hit
+            out[t["key"]] = cache[ck] = rec
+            _VP_CACHE_STATE["new"].add(ck)
+            _VP_CACHE_STATE["misses"] += 1
+            _VP_CACHE_STATE["dirty"] = True
     return out
+
+
+def vp_peak_kib(t: dict, audio: LazyAudio, params: Dict[str, List[float]]) -> float:
+    """Peak traced memory of one real extract_turn_voiceprint call (measured once, then cached)."""
+    cache = vp_cache()
+    ck = f"mem|{t['key']}|{params_hash(params)}|{vp_code_hash()}|{audio.st:.3f}"
+    if ck not in cache:
+        pcm, rate, st = audio.get()
+        s, e = t["start"] - st, min(t["end"], st + len(pcm) / float(rate)) - st
+        a, b = max(0, int(s * rate)), max(0, int(e * rate))
+        with vp_params(params):
+            cache[ck] = peak_kib(lambda: core.extract_turn_voiceprint(pcm[a:b], rate, s, e, offset_sec=a / float(rate),
+                                                                      text=t["text"]))
+        _VP_CACHE_STATE["new"].add(ck)
+        _VP_CACHE_STATE["dirty"] = True
+    return cache[ck]
 
 
 def fit_channel_priors(recs: List[dict]) -> Tuple[List[float], List[float], int]:
@@ -536,10 +664,16 @@ def fisher_ratios(units: List[dict], recs: Dict[str, dict], logsig: List[float])
 
 
 # ------------------------------------------------------------------------------------------- pipeline configs
+# In-run memo of constrained_voiceprint_diarize (a pure function of its inputs): the Val grid re-runs the same
+# sessions under 48 configs and only alpha changes the diarization. Used for the grid / Train checks only, never
+# for runs whose latency or memory is reported.
+_DIAR_MEMO: Dict[Any, Dict[str, Any]] = {}
+
+
 @contextmanager
 def patched(bicl: bool = True, bicl_sim: float = core.BICL_MERGE_SIM, gift: bool = True, gsn: bool = True,
             gsn_iters: int = core.GSN_ITERATIONS, alpha: float = core.E2CP_ALPHA, lexical: bool = True,
-            graph_roles: bool = True, capture: Optional[List] = None):
+            graph_roles: bool = True, transitions: bool = True, capture: Optional[List] = None, memo: bool = False):
     saved: Dict[str, Any] = {}
 
     def put(name: str, val: Any) -> None:
@@ -550,8 +684,15 @@ def patched(bicl: bool = True, bicl_sim: float = core.BICL_MERGE_SIM, gift: bool
                                    core.aggregate_cross_turn_slots, core.e2cp_adjust_affinity)
     try:
         put("BICL_MERGE_SIM", bicl_sim)
-        put("constrained_voiceprint_diarize",
-            lambda turns, graph=None, speaker_roles=None, **_: o_cvd(turns, graph, speaker_roles, alpha=alpha))
+        def cvd(turns, graph=None, speaker_roles=None, **_):
+            if not memo:
+                return o_cvd(turns, graph, speaker_roles, alpha=alpha)
+            key = (alpha, lexical, repr([vars(t) for t in turns]),
+                   json.dumps(graph, sort_keys=True, default=str), repr(sorted((speaker_roles or {}).items())))
+            if key not in _DIAR_MEMO:
+                _DIAR_MEMO[key] = o_cvd(turns, graph, speaker_roles, alpha=alpha)
+            return _DIAR_MEMO[key]
+        put("constrained_voiceprint_diarize", cvd)
         put("gsn_propagate_session", lambda *a, **k: o_gsn(*a, **{**k, "iterations": gsn_iters}))
         if not gsn:
             put("aggregate_cross_turn_slots", lambda *a, **k: o_agg(*a[:5], **{**k, "gsn": None}))
@@ -563,6 +704,9 @@ def patched(bicl: bool = True, bicl_sim: float = core.BICL_MERGE_SIM, gift: bool
             put("gift_boost_transitions", lambda turns, labels, graph, amendments, transitions, *a, **k: transitions)
         if not (gift and graph_roles):
             put("gift_infer_roles", lambda *a, **k: {})
+        if not transitions:   # no MIntRec transition chains (REQUEST_TO_REFUSAL / COMPLIANCE ...) reach the fusion
+            put("detect_mintrec_transitions", lambda *a, **k: [])
+            put("gift_boost_transitions", lambda *a, **k: [])
         if not lexical:
             put("voiceprint_lexical_constraints", lambda *a, **k: [])
         if capture is not None:
@@ -579,15 +723,16 @@ def patched(bicl: bool = True, bicl_sim: float = core.BICL_MERGE_SIM, gift: bool
 
 TABLE_B_CONFIGS = (
     ("C1", "Baseline Sliding Window / Sequential (HRED-style, no disentanglement, raw P0 keywords)", None),
-    ("C2", "Greedy TD/MF + Hypothetical P0 Guard", dict(bicl=False, gift=False, gsn=False)),
-    ("C3", "+ Bi-CL Session-Prototype Disentanglement", dict(bicl=True, gift=False, gsn=False)),
-    ("C4", "+ GIFT 4-Edge Topology & Replied-By Amendment", dict(bicl=True, gift=True, gsn=False)),
-    ("C5", "+ GSN Bidirectional Flow + MIntRec Transitions (Full v7.7)", dict(bicl=True, gift=True, gsn=True)),
+    ("C2", "Greedy TD/MF + Hypothetical P0 Guard", dict(bicl=False, gift=False, gsn=False, transitions=False)),
+    ("C3", "+ Bi-CL Session-Prototype Disentanglement", dict(bicl=True, gift=False, gsn=False, transitions=False)),
+    ("C4", "+ GIFT 4-Edge Topology & Replied-By Amendment", dict(bicl=True, gift=True, gsn=False, transitions=False)),
+    ("C5", "+ GSN 3-iter BIF + MIntRec Transition Chains (Full v7.7)",
+     dict(bicl=True, gift=True, gsn=True, transitions=True)),
 )
 TABLE_A_MODELS = (
     ("M1", "Acoustic Baseline (ZCR/RMS K-means)"),
     ("M2", "Unconstrained 24-d Spectral Voiceprint (StatPool only, alpha=0) + Train role priors"),
-    ("M3", "Lexical Cues + Train role priors (No Graph, No Voiceprint)"),
+    ("M3", "Lexical self-cues only (EXTENDED_ROLE_CUES; no Train priors, no GIFT graph, no voiceprint)"),
     ("M4", "Ours v7.7 (StatPool 75%-Anchor + Turn-to-Diarize E2CP + GIFT Graph) + Train role priors"),
     ("M5", "Train-split speaker voiceprint prototypes + role priors (nearest prototype; offline eval only)"),
 )
@@ -637,7 +782,7 @@ def predict_config(unit: dict, cfg: Optional[dict]) -> Dict[str, Any]:
         return {"thread": thread, "addr": [(a, "") for a in prev_other],
                 "p0": [any(k in t["text"] for k in eng.P0_EMERGENCY_KW) for t in ts], "issues": issues,
                 "resolutions": res, "links": _thread_links(issues, res, thread), "speakers": None,
-                "ms": 1000.0 * (time.perf_counter() - t0)}
+                "consensus": fusion["consensus_state"], "ms": 1000.0 * (time.perf_counter() - t0)}
     payload, ms = run_engine(unit, cfg)
     td = payload["turns_detail"]
     use_gift = cfg.get("gift", True)
@@ -658,7 +803,7 @@ def predict_config(unit: dict, cfg: Optional[dict]) -> Dict[str, Any]:
     has_vp = any(t.get("vp") for t in ts)
     return {"thread": thread, "addr": addr, "p0": [eng.has_live_p0(t["text"]) for t in ts], "issues": issues,
             "resolutions": res, "links": links, "speakers": [d["refined_speaker"] for d in td] if has_vp else None,
-            "ms": ms, "payload": payload}
+            "consensus": fusion["consensus_state"], "ms": ms, "payload": payload}
 
 
 # ------------------------------------------------------------------------------------------- metrics
@@ -702,6 +847,34 @@ def gt_links(unit: dict) -> Dict[Tuple[int, int], int]:
     return out
 
 
+def gt_consensus(unit: dict) -> str:
+    """Gold consensus state: the engine's own state rule (aggregate_cross_turn_slots) applied to the gold labels.
+    IMMEDIATE_ESCALATION if a gold live P0 intent or a live crisis chain occurs; CONSENSUS_ACTIONABLE if some gold
+    thread has a resolution (after its first issue, when it has one), >= 2 gold speakers and no unanswered
+    REQUEST_TO_REFUSAL chain (core.trailing_refusal; chains = MINTREC_TRANSITION_RULES over gold fine intents /
+    threads / speakers); else OPEN_DISCUSSION."""
+    ts = unit["turns"]
+    sess = make_session(unit)
+    turns = [dataclasses.replace(t, speaker_id=x["gt"]["ground_truth_speaker"]) for t, x in zip(sess.turns, ts)]
+    thread_of = {t.turn_id: ("T_BACKCHANNEL_NOISE" if x["gt"]["ground_truth_thread"] == "noise"
+                             else "G:" + x["gt"]["ground_truth_thread"]) for t, x in zip(turns, ts)}
+    chains = core.detect_mintrec_transitions(turns, [{"fine": x["gt"]["ground_truth_mintrec_fine"]} for x in ts],
+                                             thread_of)
+    if (any("P0_EMERGENCY_ALERT" in x["gt"]["ground_truth_intents"] for x in ts)
+            or any(c["type"] == "CRISIS_ESCALATION_CHAIN" and c.get("live_hazard") for c in chains)):
+        return "IMMEDIATE_ESCALATION"
+    for th in {v for v in thread_of.values() if v != "T_BACKCHANNEL_NOISE"}:
+        idx = [i for i, t in enumerate(turns) if thread_of[t.turn_id] == th]
+        slots = [ts[i]["gt"]["ground_truth_slot"] for i in idx]
+        first_issue = slots.index("issue") if "issue" in slots else -1
+        mine = [c for c in chains if c["thread_id"] == th]
+        gold_res = [{"turn_id": turns[i].turn_id} for k, i in enumerate(idx)
+                    if k > first_issue and slots[k] == "resolution"]
+        if gold_res and len({turns[i].speaker_id for i in idx}) >= 2 and not core.trailing_refusal(mine, gold_res):
+            return "CONSENSUS_ACTIONABLE"
+    return "OPEN_DISCUSSION"
+
+
 def score_table_b(units: List[dict], preds: Dict[str, dict]) -> Dict[str, Any]:
     pn = inn = n = 0
     sp_p = sp_i = sp_n = 0
@@ -709,9 +882,15 @@ def score_table_b(units: List[dict], preds: Dict[str, dict]) -> Dict[str, Any]:
     s_hit = s_gt = s_pred = s_tp_pred = 0
     l_tp = l_gt = l_pred = l_tp_pred = m_tp = m_gt = 0
     far_fp = far_n = rec_tp = rec_n = 0
+    c_ok = c_n = 0
+    c_gt: Dict[str, int] = {}
     ms = turns = 0.0
     for u in units:
         pr, ts = preds[u["unit_id"]], u["turns"]
+        g_state = u.get("gt_consensus") or gt_consensus(u)
+        c_gt[g_state] = c_gt.get(g_state, 0) + 1
+        c_n += 1
+        c_ok += int(pr["consensus"] == g_state)
         idx = [i for i, t in enumerate(ts) if t["gt"]["ground_truth_thread"] != "noise"]
         a, b, c = purity_counts([pr["thread"][i] for i in idx], [ts[i]["gt"]["ground_truth_thread"] for i in idx])
         pn, inn, n = pn + a, inn + b, n + c
@@ -767,7 +946,10 @@ def score_table_b(units: List[dict], preds: Dict[str, dict]) -> Dict[str, Any]:
             "addressee_acc": a_ok / a_n if a_n else 0.0, "addressee_n": a_n,
             "slot_completeness": comp, "slot_precision": prec, "slot_f1": f1(comp, prec), "slot_gt": s_gt,
             "link_recall": l_rec, "link_precision": l_prec, "link_f1": f1(l_rec, l_prec), "link_gt": l_gt,
-            "multihop_link_recall": m_tp / m_gt if m_gt else None, "multihop_link_gt": m_gt,
+            "multihop_link_recall": m_tp / m_gt if m_gt else None, "multihop_link_gt": m_gt, "multihop_link_tp": m_tp,
+            "consensus_acc": c_ok / c_n if c_n else None, "consensus_n": c_n, "consensus_ok": c_ok,
+            "consensus_gt_states": c_gt,
+            "mhc_acc": (m_tp + c_ok) / (m_gt + c_n) if m_gt + c_n else None, "mhc_n": m_gt + c_n,
             "p0_far": far_fp / far_n if far_n else None, "p0_far_n": far_n, "p0_far_fp": far_fp,
             "p0_recall": rec_tp / rec_n if rec_n else None, "p0_recall_n": rec_n,
             "ms_per_turn": ms / turns if turns else 0.0}
@@ -804,6 +986,54 @@ def learn_prototypes(train_units: List[dict]) -> Dict[str, Dict[str, List[float]
                 for k, x in enumerate(v):
                     cur[k] += x
     return {src: {sp: core._vp_l2(v) for sp, v in sps.items()} for src, sps in acc.items()}
+
+
+def _report(src: str) -> Optional[dict]:
+    path = OUT_DIR / f"{src}_mpc_report.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+
+def fullrec_role_priors(cuts: Dict[str, dict]) -> Dict[str, Dict[str, str]]:
+    """Per recording: session-level cue (+ GIFT graph) role inference over the unlabelled, non-noise merged turns
+    that start before the Val cut (no labels, no future turns). -> {src: {speaker: role}} (resolved speakers only)."""
+    from interview_analyzer import normalize_asr_text
+    out: Dict[str, Dict[str, str]] = {}
+    for src, c in cuts.items():
+        d = _report(src)
+        if d is None:
+            continue
+        noise = set(d["general_disentangle"].get("noise_turn_ids") or [])
+        turns: List[core.UtteranceTurn] = []
+        for k, t in enumerate(d["merged_turns"], 1):
+            if k not in noise and float(t["start"]) < c["val_start_sec"]:
+                turns.append(core.UtteranceTurn(len(turns) + 1, float(t["start"]), t["speaker"], "unknown",
+                                                normalize_asr_text(t["text"]), end_time=float(t["end"])))
+        roles = core.infer_session_speaker_roles(turns) if turns else {}
+        out[src] = {sp: r for sp, r in roles.items() if r != "unknown"}
+    return out
+
+
+def fullrec_vp_turns(cuts: Dict[str, dict], windows: List[dict]) -> List[dict]:
+    """Up to FULLREC_VP_MAX unlabelled substantive turns per recording, evenly spaced over [0, Val cut), outside the
+    golden windows: pseudo one-turn windows for the unsupervised voiceprint channel statistics."""
+    out = []
+    for src, c in cuts.items():
+        d = _report(src)
+        if d is None:
+            continue
+        noise = set(d["general_disentangle"].get("noise_turn_ids") or [])
+        spans = [(min(t["start"] for t in w["turns"]), max(t["end"] for t in w["turns"]))
+                 for w in windows if w["source"] == src]
+        cand = [(k, t) for k, t in enumerate(d["merged_turns"], 1)
+                if k not in noise and float(t["end"]) < c["val_start_sec"]
+                and float(t["end"]) - float(t["start"]) >= FULLREC_MIN_DUR
+                and not any(a - 1.0 <= float(t["start"]) <= b + 1.0 for a, b in spans)]
+        step = max(1, len(cand) // FULLREC_VP_MAX)
+        for k, t in cand[::step][:FULLREC_VP_MAX]:
+            key = f"{src}:full{k}"
+            out.append({"unit_id": key, "source": src, "turns": [
+                {"key": key, "start": float(t["start"]), "end": float(t["end"]), "text": t["text"]}]})
+    return out
 
 
 # ------------------------------------------------------------------------------------------- Table A models
@@ -855,13 +1085,22 @@ def table_a_unit(unit: dict, recs: List[dict], ac_norm, best: dict, protos: Dict
                  "ms": 1000.0 * (time.perf_counter() - t0) + sum(r["vp_ms"] for r in recs)}
     t0 = time.perf_counter()
     lab = [t["speaker_id"] for t in ts]
-    out["M3"] = {"speakers": lab, "roles": roles_for(unit, lab, False, priors),
+    out["M3"] = {"speakers": lab, "roles": roles_for(unit, lab, False, None),   # direct lexical self-cues only
                  "ms": 1000.0 * (time.perf_counter() - t0)}
     cap: List = []
     payload, ms = run_engine(unit, {**best_cfg(best), "capture": cap})
     td = payload["turns_detail"]
     out["M4"] = {"speakers": [d["refined_speaker"] for d in td], "roles": [d["inferred_role"] for d in td],
                  "ms": ms + sum(r["vp_ms"] for r in recs)}
+    # role-ID attribution (which M4 component resolves which speaker)
+    no_graph, _ = run_engine(unit, {**best_cfg(best), "graph_roles": False})
+    out["_role_ablation"] = {
+        "cues_graph": roles_for(unit, lab, True, None),
+        "cues_priors": roles_for(unit, lab, False, priors),
+        "m4_no_graph": [d["inferred_role"] for d in no_graph["turns_detail"]],
+        "m4_no_priors": [d["inferred_role"] for d in
+                         run_engine({**unit, "role_priors": {}}, best_cfg(best))[0]["turns_detail"]]}
+    out["_role_sources"] = dict(payload.get("speaker_role_sources") or {})
     t0 = time.perf_counter()
     lab = m5_assign(unit, protos)
     out["M5"] = {"speakers": lab, "roles": [priors.get(sp, "unknown") for sp in lab],
@@ -920,6 +1159,24 @@ def score_table_a(units: List[dict], res: Dict[str, dict], any_verified_speaker:
                       "purity_is_label_source": mid == "M3" and not any_verified_speaker,
                       "role_acc": r_ok / r_n if r_n else 0.0, "role_n": r_n,
                       "ms_per_turn": ms / turns if turns else 0.0}
+    abl: Dict[str, Dict[str, Any]] = {}
+    for key in ("cues_graph", "cues_priors", "m4_no_graph", "m4_no_priors"):
+        ok = n_ = 0
+        for u in units:
+            for t, role in zip(u["turns"], res[u["unit_id"]]["_role_ablation"][key]):
+                if t["gt"]["ground_truth_role"] != "unknown":
+                    n_ += 1
+                    ok += int(role == t["gt"]["ground_truth_role"])
+        abl[key] = {"role_acc": ok / n_ if n_ else 0.0, "role_n": n_}
+    src_count: Dict[str, int] = {}
+    graph_turns = []
+    for u in units:
+        rs = res[u["unit_id"]]["_role_sources"]
+        for sp, srcname in rs.items():
+            src_count[srcname] = src_count.get(srcname, 0) + 1
+            if srcname == core.GRAPH_INFERRED_SOURCE:
+                graph_turns.append(f"{u['unit_id'].split('#')[0]}:{sp}")
+    table["_role_attribution"] = {**abl, "m4_speaker_role_sources": src_count, "graph_inferred": graph_turns}
     return table
 
 
@@ -948,14 +1205,16 @@ def schema_audit(train_units: List[dict], test_units: List[dict]) -> Dict[str, A
 
 
 # ------------------------------------------------------------------------------------------- export
-def export_dataset(units: List[dict], meta: dict) -> None:
+def export_dataset(units: List[dict], meta: dict, scheme_splits: Optional[Dict[str, Dict[str, str]]] = None) -> None:
     OUT_DIR.mkdir(exist_ok=True)
     rows = []
     for u in units:
         for t in u["turns"]:
             vp = t.get("vp") or {}
             rows.append({
-                "key": t["key"], "split": t["split"], "unit_id": u["unit_id"], "kind": u["kind"],
+                "key": t["key"], "split": t["split"],
+                **{col: m.get(t["key"], t["split"]) for col, m in (scheme_splits or {}).items()},
+                "unit_id": u["unit_id"], "kind": u["kind"],
                 "source": u["source"], "window": u["window"], "turn_id": t["turn_id"],
                 "start": round(t["start"], 2), "end": round(t["end"], 2), "speaker_id": t["speaker_id"],
                 "asr_text_raw": t["asr_text_raw"], "text_clean": t["text"], **t["gt"],
@@ -1069,6 +1328,349 @@ def _lab_fix(text: str) -> str:
     return text
 
 
+# ------------------------------------------------------------------------------------------- Table C: audio + simulation
+SIM_LEAD_BLEED = (0.2, 0.5, 1.0, 1.5)    # s of the previous talker inside the ASR turn boundary (start)
+SIM_TAIL_BLEED = (0.2, 0.5)              # s of the next talker inside the boundary (end)
+SIM_SNR_DB = (20.0, 10.0, 5.0, 0.0)      # whole-turn overlap: target-to-interferer power ratio
+SIM_SEEDS = (3, 4)
+SIM_TURN_S = 3.0
+
+
+def corpus_segmentation_stats() -> List[Dict[str, Any]]:
+    """Per recording: raw Whisper segments -> ASR repetition loops collapsed -> merged turns -> backchannel noise."""
+    from interview_analyzer import collapse_asr_loops
+    rows = []
+    for src in JIA_AN + ("interview4",):
+        d = _report(src)
+        raw_p = OUT_DIR / f"{src}_raw_stt.json"
+        if d is None or not raw_p.exists():
+            continue
+        segs = json.loads(raw_p.read_text(encoding="utf-8"))["segments"]
+        col = collapse_asr_loops(segs)
+        loops = [x["asr_loop_collapsed"] for x in col if x.get("asr_loop_collapsed")]
+        noise = len(d["general_disentangle"].get("noise_turn_ids") or [])
+        rows.append({"source": src, "duration_sec": d["duration_sec"], "raw_segments": len(segs),
+                     "report_raw_segments": d["raw_segment_count"], "asr_loop_runs": len(loops),
+                     "asr_loop_segments_absorbed": sum(n - 1 for n in loops), "max_loop": max(loops, default=0),
+                     "merged_turns": d["merged_turn_count"], "noise_turns": noise,
+                     "substantive_turns": d["merged_turn_count"] - noise,
+                     "ambient_ignored_noise": (d.get("ambient_stats") or {}).get("ignored_noise"),
+                     "in_corpus": src in JIA_AN})
+    return rows
+
+
+@contextmanager
+def naive_sampler():
+    """Whole-turn analysis window: no 0.25 s collar, no 75 % anchor (the ablation of voiceprint_windows)."""
+    orig = core.voiceprint_windows
+    core.voiceprint_windows = lambda s, e: ([(s, e, 0.5 * (s + e))], False)
+    try:
+        yield
+    finally:
+        core.voiceprint_windows = orig
+
+
+def _overlap(wins: List[Tuple[float, float, float]], a: float, b: float) -> float:
+    tot = sum(we - ws for ws, we, _ in wins) or 1.0
+    return sum(max(0.0, min(we, b) - max(ws, a)) for ws, we, _ in wins) / tot
+
+
+def simulate_audio() -> Dict[str, Any]:
+    """Cached wrapper of _simulate_audio (deterministic synthetic signals; keyed by extractor + simulator code)."""
+    import hashlib
+    import inspect
+    src = inspect.getsource(_simulate_audio) + inspect.getsource(core.synth_test_voice) + repr(
+        (SIM_LEAD_BLEED, SIM_TAIL_BLEED, SIM_SNR_DB, SIM_SEEDS, SIM_TURN_S, core.TEST_VOICE_LOW, core.TEST_VOICE_HIGH))
+    ck = f"sim|{vp_code_hash()}|{params_hash(shipped_vp_params())}|{hashlib.sha1(src.encode()).hexdigest()[:12]}"
+    cache = vp_cache()
+    if ck not in cache:
+        cache[ck] = json.loads(json.dumps(_simulate_audio()))
+        _VP_CACHE_STATE["dirty"] = True
+    return cache[ck]
+
+
+def _simulate_audio() -> Dict[str, Any]:
+    """Deterministic synthetic benchmark on core.synth_test_voice (two talkers, low / high voice):
+    (a) boundary bleed: the other talker occupies the first (last) b s of the ASR turn span;
+    (b) whole-turn overlap at SIM_SNR_DB; (c) near-field (headset) vs far-field (1-3 m, reverb) near_field_score.
+    Correct = the turn voiceprint is closer (cosine) to the target's clean reference than to the interferer's."""
+    voices = {"low": core.TEST_VOICE_LOW, "high": core.TEST_VOICE_HIGH}
+    rate = 16000
+    ref = {k: core.extract_turn_voiceprint(core.synth_test_voice(v, SIM_TURN_S, 21 + i), rate, 0.0, SIM_TURN_S)
+           ["voiceprint"] for i, (k, v) in enumerate(voices.items())}
+    bleed: Dict[str, Dict[str, List[Tuple[int, float, float]]]] = {}
+    for tgt, other in (("low", "high"), ("high", "low")):
+        for seed in SIM_SEEDS:
+            cases = [("lead", b) for b in SIM_LEAD_BLEED] + [("tail", b) for b in SIM_TAIL_BLEED]
+            for side, b in cases:
+                tv = core.synth_test_voice(voices[tgt], SIM_TURN_S, seed)
+                ov = core.synth_test_voice(voices[other], b, seed + 50)
+                pcm = ov + tv if side == "lead" else tv + ov
+                span = SIM_TURN_S + b
+                ba, bb = (0.0, b) if side == "lead" else (SIM_TURN_S, span)
+                for name, ctx in (("v7.7 collar + 75% anchor", None), ("whole-turn window", naive_sampler)):
+                    if ctx is None:
+                        vp = core.extract_turn_voiceprint(pcm, rate, 0.0, span)
+                    else:
+                        with ctx():
+                            vp = core.extract_turn_voiceprint(pcm, rate, 0.0, span)
+                    m = core._vp_cos(vp["voiceprint"], ref[tgt]) - core._vp_cos(vp["voiceprint"], ref[other])
+                    bleed.setdefault(name, {}).setdefault(f"{side} {b:.1f} s", []).append(
+                        (int(m > 0), m, _overlap(vp["windows"], ba, bb)))
+    snr: Dict[str, List[Tuple[int, float]]] = {}
+    for tgt, other in (("low", "high"), ("high", "low")):
+        for seed in SIM_SEEDS:
+            tv = core.synth_test_voice(voices[tgt], SIM_TURN_S, seed)
+            ov = core.synth_test_voice(voices[other], SIM_TURN_S, seed + 50)
+            pt = sum(v * v for v in tv) / len(tv)
+            po = sum(v * v for v in ov) / len(ov)
+            for db in SIM_SNR_DB:
+                g = math.sqrt(pt / (po * 10 ** (db / 10.0)))
+                mix = [max(-32768, min(32767, int(a + g * c))) for a, c in zip(tv, ov)]
+                vp = core.extract_turn_voiceprint(mix, rate, 0.0, SIM_TURN_S)
+                m = core._vp_cos(vp["voiceprint"], ref[tgt]) - core._vp_cos(vp["voiceprint"], ref[other])
+                snr.setdefault(f"{db:.0f} dB", []).append((int(m > 0), m))
+    near, far = [], []
+    for v in voices.values():
+        for seed in (1, 2, 3, 4):
+            near.append(core.extract_turn_voiceprint(core.synth_test_voice(v, SIM_TURN_S, seed), rate, 0.0,
+                                                     SIM_TURN_S)["near_field_score"])
+            far.append(core.extract_turn_voiceprint(core.synth_test_voice(v, SIM_TURN_S, seed, far_field=True), rate,
+                                                    0.0, SIM_TURN_S)["near_field_score"])
+    auc = sum((a > b) + 0.5 * (a == b) for a in near for b in far) / (len(near) * len(far))
+    thr = 0.5 * (sum(near) / len(near) + sum(far) / len(far))
+    acc = (sum(x >= thr for x in near) + sum(x < thr for x in far)) / (len(near) + len(far))
+    return {"bleed": bleed, "snr": snr,
+            "near_far": {"near": near, "far": far, "auc": auc, "midpoint_threshold": thr, "midpoint_acc": acc,
+                         "dprime": dprime(near, far)}}
+
+
+# ------------------------------------------------------------------------------------------- Table D: P-series prefetcher
+P1_WINDOW = 4   # post-hoc sliding window: the last 4 turns before the query
+P_SERIES = (("P1", "Post-hoc Sliding Window (no background pool; analyze_session on the last 4 turns at query time)"),
+            ("P2", "Basic Keyword Background Pool (no MIntRec transition priority boost, no backchannel filter)"),
+            ("P3", "Ours: AmbientIntentPreFetcher + MIntRec Transition Priority Boost + P0 Auto-Fire"))
+# probe templates: Arrange-type requests (chain sources), informational mentions (no chain), noise, traps
+P_REQUEST = {"BA16_MEDICINE_PURCHASE_INQUIRY": "麻煩順便幫我買普拿疼",
+             "GA09_SC09_RESPITE_FORM": "麻煩幫我們申請喘息服務",
+             "EXTRA_OUT_OF_SCOPE_CLEANING": "麻煩順便幫我們把廁所跟馬桶刷一刷"}
+P_INFO = {"BA16_MEDICINE_PURCHASE_INQUIRY": "上次醫生說普拿疼一天最多吃四顆",
+          "GA09_SC09_RESPITE_FORM": "我們下禮拜想申請 GA09 喘息服務跟 SC09 短照"}
+P_TRAP = {"BA16_MEDICINE_PURCHASE_INQUIRY": "電視八點檔那個家屬也在申請喘息服務",   # chitchat carrying GA09 words
+          "GA09_SC09_RESPITE_FORM": "便當店老闆娘說她也要買普拿疼",               # chitchat carrying BA16 words
+          "EXTRA_OUT_OF_SCOPE_CLEANING": "便當店老闆娘說她也要買普拿疼"}
+P_GAP = ("今天午餐的雞腿便當冷掉了不好吃。", "嗯嗯", "今天中午的排骨便當菜色很鹹欸，電視八點檔又在重播。", "對啊", "喔喔")
+P_REPLY = {"agree": "好", "hesitation": "嗯…我再看看"}
+P_QUERY = "小照，家屬剛剛說的那樣可以嗎？"
+
+
+class KeywordPool(core.AmbientIntentPreFetcher):
+    """P2: stage every domain-keyword hit (no chitchat / backchannel filter, no MIntRec gating, no transition
+    tracking or priority boost, no P0 auto-fire); firing reuses the shipped fire_on_caregiver_query."""
+
+    def ingest_ambient_turn(self, turn: core.UtteranceTurn) -> dict:
+        self.ingested_count += 1
+        intents = self.engine.detect_domain_intents(turn.text or "")
+        mt = core.classify_mintrec_taxonomy(turn.text or "", turn.rms_energy, turn.zcr_pitch)   # payload metadata only
+        for key in intents:
+            pkt = self.staged_packets.setdefault(key, {
+                "intent_key": key, "stage_status": "STAGED_READY", "turn_ids": [], "texts": [], "mintrec": [],
+                "speakers": [], "first_ts": turn.timestamp, "last_ts": turn.timestamp,
+                "staging_priority": self.BASE_STAGING_PRIORITY, "transition_chains": []})
+            pkt["turn_ids"].append(turn.turn_id)
+            pkt["texts"].append(turn.text)
+            pkt["mintrec"].append({"turn_id": turn.turn_id, **mt})
+            if turn.speaker_id not in pkt["speakers"]:
+                pkt["speakers"].append(turn.speaker_id)
+            pkt["last_ts"] = turn.timestamp
+        if not intents:
+            self.ignored_count += 1
+        return {"turn_id": turn.turn_id, "status": "STAGED_READY" if intents else "OBSERVED", "staged_keys": intents}
+
+
+def _p_turns(spec: List[Tuple[str, str]]) -> List[core.UtteranceTurn]:
+    return [core.UtteranceTurn(i, 10.0 * i, sp, "unknown", text) for i, (sp, text) in enumerate(spec, 1)]
+
+
+def p_run(system: str, turns: List[core.UtteranceTurn], query: str) -> Tuple[List[str], List[int], float]:
+    """-> (fired intents in rank order, fired turn ids, query-time latency ms) for one probe."""
+    ts = turns[-1].timestamp + 10.0 if turns else 0.0
+    if system == "P1":
+        t0 = time.perf_counter()
+        win = [dataclasses.replace(t, turn_id=k) for k, t in enumerate(turns[-P1_WINDOW:], 1)]
+        q = core.UtteranceTurn(len(win) + 1, ts, "speaker_3", "caregiver", query)
+        pay = core.XiaoZhaoMPCEngine().analyze_session(core.DialogueSessionState("P1", "P", turns=win + [q]))
+        ms = 1000.0 * (time.perf_counter() - t0)
+        ids = [turns[-len(win):][k - 1].turn_id for k in pay["selected_turn_indices"] if k <= len(win)]
+        return [i for i in pay["detected_intents"] if i != "GENERAL_CARE_LOG"], ids, ms
+    pf = KeywordPool() if system == "P2" else core.AmbientIntentPreFetcher()
+    for t in turns:
+        pf.ingest_ambient_turn(t)
+    pay = pf.fire_on_caregiver_query(query, ts)
+    return [i for i in pay["detected_intents"] if i != "GENERAL_CARE_LOG"], pay["selected_turn_indices"], \
+        pay["dispatch_latency_ms"]
+
+
+def p_probes() -> Dict[str, List[dict]]:
+    """Constructed probe set (data simulation; every factor level is listed in the report)."""
+    ref = []
+    for tgt, req in P_REQUEST.items():
+        for trap in ("none", "before", "after"):
+            for gap in (0, 2, 5):
+                spec = [("speaker_1", P_TRAP[tgt])] if trap == "before" else []
+                spec.append(("speaker_2", req))
+                spec += [("speaker_1", P_GAP[k % len(P_GAP)]) for k in range(gap)]
+                if trap == "after":
+                    spec.append(("speaker_1", P_TRAP[tgt]))
+                ref.append({"factors": {"trap": trap, "gap": gap}, "turns": _p_turns(spec), "query": P_QUERY,
+                            "gold": {tgt}})
+    for s in core.build_5_benchmark_scenarios():   # the natural referential queries of the scripted dialogues
+        q = next((k for k, t in enumerate(s.turns) if t.text.startswith("小照") and "剛剛" in t.text), None)
+        if q:
+            ref.append({"factors": {"trap": "scripted", "gap": q - 1}, "turns": s.turns[:q], "query": s.turns[q].text,
+                        "gold": set(core.XiaoZhaoMPCEngine().detect_domain_intents(s.turns[q].text)) or
+                        {i for t in s.turns[:q] for i in core.XiaoZhaoMPCEngine().detect_domain_intents(t.text)}})
+    comp = []
+    pairs = (("BA16_MEDICINE_PURCHASE_INQUIRY", "GA09_SC09_RESPITE_FORM"),
+             ("EXTRA_OUT_OF_SCOPE_CLEANING", "GA09_SC09_RESPITE_FORM"),
+             ("GA09_SC09_RESPITE_FORM", "BA16_MEDICINE_PURCHASE_INQUIRY"))
+    for chain, other in pairs:
+        for order in ("other_first", "chain_first"):
+            for reply in P_REPLY:
+                for tail in (0, 3):
+                    c = [("speaker_2", P_REQUEST[chain]), ("speaker_3", P_REPLY[reply])]
+                    o = [("speaker_4", P_INFO[other])]
+                    spec = (o + c if order == "other_first" else c + o)
+                    spec += [("speaker_1", P_GAP[2 * k % len(P_GAP)]) for k in range(tail)]
+                    comp.append({"factors": {"order": order, "reply": reply, "tail": tail},
+                                 "turns": _p_turns(spec), "query": P_QUERY, "gold": {chain}})
+    return {"referential": ref, "compliance": comp}
+
+
+def p_noise_rejection() -> Dict[str, Dict[str, Any]]:
+    """Real corpus: every merged turn of the 3 Jia-An recordings, streamed WITHOUT the analyzer's thread labels.
+    Gold noise = interview_analyzer's T_BACKCHANNEL_NOISE turns (an upstream rule-based labeller, not a human).
+    P2 / P3: rejected = the turn's text is in no staged packet. P1: rejected = not in the query context of its 4-turn window."""
+    from interview_analyzer import normalize_asr_text
+    out: Dict[str, Dict[str, Any]] = {pid: {"noise": 0, "rejected": 0, "domain": 0, "domain_kept": 0}
+                                      for pid, _ in P_SERIES}
+    eng = core.XiaoZhaoMPCEngine()
+    for src in JIA_AN:
+        d = _report(src)
+        if d is None:
+            continue
+        noise = set(d["general_disentangle"].get("noise_turn_ids") or [])
+        turns = [core.UtteranceTurn(k, float(t["start"]), t["speaker"], "unknown", normalize_asr_text(t["text"]))
+                 for k, t in enumerate(d["merged_turns"], 1)]
+        domain = {t.turn_id for t in turns if t.turn_id not in noise and eng.detect_domain_intents(t.text)}
+        for pid in ("P2", "P3"):
+            pf = KeywordPool(eng) if pid == "P2" else core.AmbientIntentPreFetcher(eng)
+            for t in turns:
+                pf.ingest_ambient_turn(t)
+            # in the pool = the turn's text sits in a staged packet (a backchannel that only closes a chain and
+            # boosts an existing packet is not in it); nothing is popped while streaming (no queries)
+            staged = {i for pk in pf.staged_packets.values() for i in pk["turn_ids"]}
+            staged |= {i for pay in pf.auto_fired for i in pay["selected_turn_indices"]}
+            o = out[pid]
+            o["noise"] += len(noise)
+            o["rejected"] += len(noise - staged)
+            o["domain"] += len(domain)
+            o["domain_kept"] += len(domain & staged)
+        kept = set()
+        for i in range(0, len(turns), P1_WINDOW):
+            win = [dataclasses.replace(t, turn_id=k) for k, t in enumerate(turns[i:i + P1_WINDOW], 1)]
+            q = core.UtteranceTurn(len(win) + 1, win[-1].timestamp + 1.0, "speaker_x", "caregiver", P_QUERY)
+            pay = eng.analyze_session(core.DialogueSessionState("P1", "P", turns=win + [q]))
+            kept |= {turns[i + k - 1].turn_id for k in pay["selected_turn_indices"] if k <= len(win)}
+        o = out["P1"]
+        o["noise"] += len(noise)
+        o["rejected"] += len(noise - kept)
+        o["domain"] += len(domain)
+        o["domain_kept"] += len(domain & kept)
+    for o in out.values():
+        o["rejection_rate"] = o["rejected"] / o["noise"] if o["noise"] else None
+        o["domain_retention"] = o["domain_kept"] / o["domain"] if o["domain"] else None
+    return out
+
+
+def p_series() -> Dict[str, Any]:
+    probes = p_probes()
+    res: Dict[str, Any] = {}
+    for pid, _ in P_SERIES:
+        r: Dict[str, Any] = {}
+        lat = []
+        for kind in ("referential", "compliance"):
+            rows = []
+            for pr in probes[kind]:
+                intents, ids, ms = p_run(pid, pr["turns"], pr["query"])
+                lat.append(ms)
+                rows.append({**pr["factors"], "ok": int(bool(intents) and intents[0] in pr["gold"]),
+                             "top1": intents[0] if intents else "", "gold": sorted(pr["gold"])})
+            r[kind] = {"acc": sum(x["ok"] for x in rows) / len(rows), "n": len(rows), "rows": rows}
+        r["fire_ms_mean"] = sum(lat) / len(lat)
+        r["fire_ms_max"] = max(lat)
+        res[pid] = r
+    # P0: P3 auto-fires while ingesting the hazard turn; P1 / P2 dispatch only when someone queries
+    pf = core.AmbientIntentPreFetcher()
+    pf.ingest_ambient_turn(core.UtteranceTurn(1, 0.0, "speaker_2", "family", P_REQUEST["BA16_MEDICINE_PURCHASE_INQUIRY"]))
+    t0 = time.perf_counter()
+    r0 = pf.ingest_ambient_turn(core.UtteranceTurn(2, 5.0, "speaker_1", "elder", "救命！我跌倒了好痛"))
+    res["P3"]["p0_autofire_ms"] = 1000.0 * (time.perf_counter() - t0) if r0["status"] == "AUTO_FIRED_P0" else None
+    res["noise"] = p_noise_rejection()
+    res["probe_counts"] = {k: len(v) for k, v in probes.items()}
+    return res
+
+
+def p_breakdown(rows: List[dict], key: str) -> str:
+    levels: Dict[Any, List[int]] = {}
+    for x in rows:
+        levels.setdefault(x[key], []).append(x["ok"])
+    return ", ".join(f"{k}: {sum(v)}/{len(v)}" for k, v in levels.items())
+
+
+def table_d_md(ps: Dict[str, Any]) -> List[str]:
+    rows = []
+    for pid, name in P_SERIES:
+        r, nz = ps[pid], ps["noise"][pid]
+        p0 = (f"auto-fired at ingest ({r['p0_autofire_ms']:.2f} ms)" if r.get("p0_autofire_ms") is not None
+              else "— (waits for a query)")
+        rows.append([f"{pid}: {name}",
+                     f"{pct(r['referential']['acc'])} ({sum(x['ok'] for x in r['referential']['rows'])}/"
+                     f"{r['referential']['n']})",
+                     f"{pct(nz['rejection_rate'])} ({nz['rejected']}/{nz['noise']}); domain turns kept "
+                     f"{pct(nz['domain_retention'])}",
+                     f"{pct(r['compliance']['acc'])} ({sum(x['ok'] for x in r['compliance']['rows'])}/"
+                     f"{r['compliance']['n']})",
+                     f"{r['fire_ms_mean']:.2f} (max {r['fire_ms_max']:.2f})", p0])
+    md = ["## Table D — Ambient prefetcher (P-series): background pool vs post-hoc window",
+          "",
+          md_table(["System", "Referential query resolution acc %", "Backchannel noise rejection %",
+                    "Priority ranking acc % (REQUEST_TO_COMPLIANCE_OR_HESITATION)", "Fire latency ms (query → payload)",
+                    "Live P0 dispatch"], rows),
+          f"- Referential / ranking probes are CONSTRUCTED (data simulation, {ps['probe_counts']['referential']} + "
+          f"{ps['probe_counts']['compliance']}): the labelled corpus has 0 gold compliance chains and only the "
+          "scripted dialogues contain natural 小照 referential queries (included). Correct = the top-ranked fired "
+          "intent is the gold referent. They test the mechanisms by design, so read them as a mechanism check with "
+          "the per-factor breakdown below, not as field accuracy.",
+          "- Referential probes: family request → `gap` non-domain turns (chitchat / backchannel) → query "
+          "「" + P_QUERY + "」; `trap` = a chitchat turn carrying another intent's keywords before / after the "
+          "request. Ranking probes: an Arrange request answered by the caregiver (好 / 嗯…我再看看) plus an "
+          "informational mention of another intent (`order`), then `tail` chitchat turns; gold = the answered request.",
+          "- Noise rejection: all merged turns of the 3 Jia-An recordings streamed without upstream thread labels; "
+          "gold noise = interview_analyzer's T_BACKCHANNEL_NOISE (rule-based, not human). 'Domain turns kept' = "
+          "non-noise turns with a domain intent that still reach the pool (P2/P3) or the query context (P1).",
+          "- P1 latency is the post-hoc analyze_session over its window; P2 / P3 latency is the pop + merge of "
+          "pre-staged packets (dispatch_latency_ms). P-series has no trained parameters, so it does not depend on "
+          "the split scheme."]
+    for pid, _ in P_SERIES:
+        r = ps[pid]
+        md.append(f"- {pid} breakdown — referential by trap: {p_breakdown(r['referential']['rows'], 'trap')}; by "
+                  f"gap: {p_breakdown(r['referential']['rows'], 'gap')}; ranking by order: "
+                  f"{p_breakdown(r['compliance']['rows'], 'order')}; by tail: "
+                  f"{p_breakdown(r['compliance']['rows'], 'tail')}")
+    return md
+
+
 # ------------------------------------------------------------------------------------------- latency-only (Pi)
 def latency_only() -> int:
     """Stdlib-only probe: voiceprint extraction on a synthetic 4 s voice + C5 analyze_session per turn on the
@@ -1111,6 +1713,20 @@ def latency_only() -> int:
 
 
 # ------------------------------------------------------------------------------------------- main
+TABLE_B_HEADER = ["Config", "Thread purity / cohesion", "Addressee acc %", "Slot completeness / precision %",
+                  "Issue→resolution link recall all / multi-hop %", "Multi-hop & consensus acc %",
+                  "Hypothetical P0 FAR %", "Live P0 recall %", "Latency ms/turn", "Peak mem KiB"]
+SUMMARY_B_HEADER = ["Config", "Thread purity / cohesion", "Addressee acc %", "Slot completeness %",
+                    "Multi-Hop & Consensus acc %", "Hypothetical P0 FAR %", "Pi mem KiB / latency ms/turn"]
+SUMMARY_A_HEADER = ["Model", "d' (within / cross pairs)", "Speaker purity / inverse purity", "Role ID acc %",
+                    "Latency ms/turn", "Peak mem KiB"]
+
+
+def mhc_cell(m: dict) -> str:
+    return (f"{pct(m['mhc_acc'])} (multi-hop {m['multihop_link_tp']}/{m['multihop_link_gt']}, "
+            f"consensus {m['consensus_ok']}/{m['consensus_n']})")
+
+
 def table_b_rows(tb: Dict[str, dict], mem: Dict[str, float]) -> List[List[str]]:
     rows = []
     for cid, name, _ in TABLE_B_CONFIGS:
@@ -1119,51 +1735,83 @@ def table_b_rows(tb: Dict[str, dict], mem: Dict[str, float]) -> List[List[str]]:
                      f"{pct(m['addressee_acc'])} (n={m['addressee_n']})",
                      f"{pct(m['slot_completeness'])} / {pct(m['slot_precision'])}",
                      f"{pct(m['link_recall'])} / {pct(m['multihop_link_recall'])} (n={m['link_gt']}/"
-                     f"{m['multihop_link_gt']})",
+                     f"{m['multihop_link_gt']})", mhc_cell(m),
                      f"{pct(m['p0_far'])} ({m['p0_far_fp']}/{m['p0_far_n']})",
                      f"{pct(m['p0_recall'])} (n={m['p0_recall_n']})", f"{m['ms_per_turn']:.2f}",
                      f"{mem.get(cid, 0.0):.0f}"])
     return rows
 
 
-TABLE_B_HEADER = ["Config", "Thread purity / cohesion", "Addressee acc %", "Slot completeness / precision %",
-                  "Issue→resolution link recall all / multi-hop %", "Hypothetical P0 FAR %", "Live P0 recall %",
-                  "Latency ms/turn", "Peak mem KiB"]
+def summary_b_rows(tb: Dict[str, dict], mem: Dict[str, float]) -> List[List[str]]:
+    return [[f"{cid}: {name}", f"{tb[cid]['thread_purity']:.3f} / {tb[cid]['thread_cohesion']:.3f}",
+             f"{pct(tb[cid]['addressee_acc'])} (n={tb[cid]['addressee_n']})",
+             f"{pct(tb[cid]['slot_completeness'])} (n={tb[cid]['slot_gt']})", mhc_cell(tb[cid]),
+             f"{pct(tb[cid]['p0_far'])} ({tb[cid]['p0_far_fp']}/{tb[cid]['p0_far_n']})",
+             f"{mem.get(cid, 0.0):.0f} / {tb[cid]['ms_per_turn']:.2f}"] for cid, name, _ in TABLE_B_CONFIGS]
+
+
+def summary_a_rows(ta: Dict[str, dict], mem: Dict[str, float]) -> List[List[str]]:
+    rows = []
+    for mid, name in TABLE_A_MODELS:
+        m = ta[mid]
+        pur = ("— (= label source)" if m["purity_is_label_source"]
+               else f"{m['speaker_purity']:.3f} / {m['speaker_inverse_purity']:.3f}")
+        dp = (f"{f3(m['dprime'])} ({m['within_pairs']} / {m['cross_pairs']})" if mid in ("M1", "M2", "M4")
+              else "—")
+        rows.append([f"{mid}: {name}", dp, pur, f"{pct(m['role_acc'])} (n={m['role_n']})",
+                     f"{m['ms_per_turn']:.2f}", f"{mem.get(mid, 0.0):.0f}"])
+    return rows
+
+
+def role_attribution_line(ta: Dict[str, dict]) -> str:
+    a = ta["_role_attribution"]
+    return (f"Role ID attribution (Test, n={ta['M3']['role_n']}): M3 cues only {pct(ta['M3']['role_acc'])} → "
+            f"cues + GIFT graph (no priors) {pct(a['cues_graph']['role_acc'])} → cues + Train priors (no graph) "
+            f"{pct(a['cues_priors']['role_acc'])}; M4 without GIFT roles {pct(a['m4_no_graph']['role_acc'])}, "
+            f"M4 without Train priors {pct(a['m4_no_priors']['role_acc'])}, M4 full {pct(ta['M4']['role_acc'])}. "
+            f"M4 speaker role sources: {a['m4_speaker_role_sources']}; graph-inferred speakers: "
+            f"{a['graph_inferred'] or 'none'}")
 
 
 def cfg_with(cfg: Optional[dict], best: dict) -> Optional[dict]:
     return None if cfg is None else {**cfg, "bicl_sim": best["bicl"], "gsn_iters": best["gsn"], "alpha": best["alpha"]}
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--write-core", action="store_true", help="write Train-fitted VP_* params into src/mpc_core.py")
-    ap.add_argument("--latency-only", action="store_true")
-    args = ap.parse_args()
-    if args.latency_only:
-        return latency_only()
+_FR_AUDIO: Dict[str, Optional[LazyAudio]] = {}
 
+
+def fr_audio(pseudo: dict) -> Optional[LazyAudio]:
+    if pseudo["unit_id"] not in _FR_AUDIO:
+        _FR_AUDIO[pseudo["unit_id"]] = lazy_audio(pseudo)
+    return _FR_AUDIO[pseudo["unit_id"]]
+
+
+def run_scheme(scheme: tuple, base_windows: List[dict], scripted: List[dict],
+               audio: Dict[str, LazyAudio], n_verified: int) -> Dict[str, Any]:
+    sid, origin, share, ratio = scheme
+    tag = f"{int(100 * share['train'])} / {int(100 * share['val'])} / {int(100 * share['test'])}"
     md: List[str] = []
+    emit = lambda line="": md.append(line)   # noqa: E731
+    log = lambda s: print(f"[{sid}] {s}", flush=True)   # noqa: E731
 
-    def emit(s: str = "") -> None:
-        print(s)
-        md.append(s)
-
-    units = load_units()
-    n_verified = import_verified(units)
-    windows = [u for u in units if u["kind"] == "real_window"]
-    scripted = [u for u in units if u["kind"] == "scripted_dialogue"]
-    segs, cuts = chrono_split(windows)
+    windows = copy.deepcopy(base_windows)
+    segs, cuts = chrono_split(windows, share)
+    for u in segs:   # gold consensus is a property of the unit (shared by every config)
+        u["gt_consensus"] = gt_consensus(u)
     seg_by = {s: [u for u in segs if u["split"] == s] for s in SPLITS}
     real_turns = sum(len(w["turns"]) for w in windows)
-    n_turns = real_turns + sum(len(u["turns"]) for u in scripted)
+    for s in SPLITS:
+        assert all(t["split"] == s for u in seg_by[s] for t in u["turns"])
+    for src in cuts:
+        ts = sorted((t for u in segs if u["source"] == src for t in u["turns"]), key=lambda t: t["start"])
+        order = [SPLITS.index(t["split"]) for t in ts]
+        assert order == sorted(order), f"{src}: split is not chronological"
+    log(f"split {tag}: " + ", ".join(f"{s} {sum(len(u['turns']) for u in seg_by[s])} turns" for s in SPLITS))
 
-    emit("# XiaoZhao v7.7 — Train / Validation / Test benchmark (within-recording chronological 10 : 5 : 5)")
+    emit(f"## Scheme {sid} — {origin}: chronological {tag} ({ratio})")
     emit()
-    emit(f"Labels: {n_verified} / {n_turns} turns human-verified; the rest are DRAFT labels (text-level labels drafted "
-         f"from the cleaned transcripts, speaker = acoustic diarizer label). Numbers are provisional until verified.")
-    emit()
-    emit("## 1. Split — per recording, chronological: first 50 % Train / next 25 % Val / last 25 % Test")
+    emit(f"### {sid} · 1. Split — per recording, chronological: first {int(100 * share['train'])} % Train / next "
+         f"{int(100 * share['val'])} % Val / last {int(100 * share['test'])} % Test")
     rows = [[src, str(c["turns"]), str(c["train"]), f"{c['val']} (from {c['val_starts']})",
              f"{c['test']} (from {c['test_starts']})"] for src, c in cuts.items()]
     tot = {s: sum(len(u["turns"]) for u in seg_by[s]) for s in SPLITS}
@@ -1171,30 +1819,31 @@ def main() -> int:
     emit(md_table(["recording", "labelled turns", "Train", "Val", "Test"], rows))
     emit(f"- Evaluation units = {len(segs)} window segments: " + "; ".join(
         f"{s}: " + ", ".join(u["unit_id"].split("#")[0] for u in seg_by[s]) for s in SPLITS))
-    emit(f"- Scripted regression set (not split, never trained on): {len(scripted)} benchmark dialogues → Table C.")
-    for s in SPLITS:
-        later = [t for u in seg_by[s] for t in u["turns"]]
-        assert all(t["split"] == s for t in later)
-    for src in cuts:
-        ts = sorted((t for u in segs if u["source"] == src for t in u["turns"]), key=lambda t: t["start"])
-        order = [SPLITS.index(t["split"]) for t in ts]
-        assert order == sorted(order), f"{src}: split is not chronological"
 
     # ---------------------------------------------------------------- audio + Train fitting
-    audio = {w["unit_id"]: a for w in windows for a in [load_window_pcm(w)] if a is not None}
     train_keys = {t["key"] for u in seg_by["train"] for t in u["turns"]}
+    fr_wins = [w for w in fullrec_vp_turns(cuts, windows) if fr_audio(w) is not None]
+    fr_keys = {w["turns"][0]["key"] for w in fr_wins}
     shipped = shipped_vp_params()
     recs_old: Dict[str, dict] = {}
     for w in windows:
         if w["unit_id"] in audio:
-            recs_old.update(extract_window(w, audio[w["unit_id"]], shipped))
-    mean, std, n_frames = fit_channel_priors([recs_old[k] for k in train_keys if k in recs_old])
+            recs_old.update(extract_window(w, audio[w["unit_id"]], shipped, frames=True))
+    recs_fr_old: Dict[str, dict] = {}
+    for w in fr_wins:
+        recs_fr_old.update(extract_window(w, fr_audio(w), shipped, frames=True))
+    _, _, n_lab_frames = fit_channel_priors([recs_old[k] for k in train_keys if k in recs_old])
+    mean, std, n_frames = fit_channel_priors([recs_old[k] for k in train_keys if k in recs_old]
+                                             + list(recs_fr_old.values()))
     priors_only_ship_w = {**shipped, "VP_PRIOR_MEAN": mean, "VP_PRIOR_STD": std}
     recs_tr: Dict[str, dict] = {}
     for w in windows:
         if w["unit_id"] in audio:
             recs_tr.update(extract_window(w, audio[w["unit_id"]], priors_only_ship_w, only=train_keys))
-    logsig = fit_logsig(list(recs_tr.values()))
+    recs_fr_tr: Dict[str, dict] = {}
+    for w in fr_wins:
+        recs_fr_tr.update(extract_window(w, fr_audio(w), priors_only_ship_w))
+    logsig = fit_logsig(list(recs_tr.values()) + list(recs_fr_tr.values()))
     with_audio = {s: [u for u in seg_by[s] if u["window_id"] in audio] for s in SPLITS}
     ratios = fisher_ratios(with_audio["train"], recs_tr, logsig)
     med = sorted(ratios)[len(ratios) // 2]
@@ -1216,8 +1865,9 @@ def main() -> int:
         return dprime(within, cross)
 
     cand_d = {s: {k: d_for(with_audio[s], recs_pri, logsig, wv) for k, wv in cands.items()} for s in SPLITS}
+    sel_split = "val" if any(cand_d["val"][k] is not None for k in cands if k != "shipped") else "train"
     best_w = max((k for k in cands if k != "shipped"),
-                 key=lambda k: (cand_d["val"][k] if cand_d["val"][k] is not None else -9, k))
+                 key=lambda k: (cand_d[sel_split][k] if cand_d[sel_split][k] is not None else -9, k))
     fitted = {**priors_only, "VP_DIM_WEIGHTS": list(cands[best_w])}
     recs_new: Dict[str, dict] = {}
     for w in windows:
@@ -1227,29 +1877,45 @@ def main() -> int:
         for t in w["turns"]:
             t["vp"] = recs_new[t["key"]]["vp"] if t["key"] in recs_new else None
     changed = {k: fitted[k] != shipped[k] for k in VP_KEYS}
-    role_priors = learn_role_priors(seg_by["train"])
+    lab_priors = learn_role_priors(seg_by["train"])
+    fr_priors = fullrec_role_priors(cuts)
+    role_priors = {src: {**fr_priors.get(src, {}), **lab_priors.get(src, {})}
+                   for src in set(lab_priors) | set(fr_priors)}
     protos = learn_prototypes(seg_by["train"])
     for u in segs:
         u["role_priors"] = dict(role_priors.get(u["source"], {}))
     mixes = build_interleaved(segs)
+    for m in mixes:
+        m["gt_consensus"] = gt_consensus(m)
     eval_by = {s: seg_by[s] + [m for m in mixes if m["split"] == s] for s in SPLITS}
+    n_mix = {s: sum(1 for m in mixes if m["split"] == s) for s in SPLITS}
+    log(f"train fit: {n_frames} voiceprint frames ({len(fr_wins)} full-recording turns), weights={best_w}")
 
     emit()
-    emit("## 2. Training stage (first 50 % of each recording)")
-    emit(f"- Voiceprint channel priors refit on {n_frames} active frames of the {len(train_keys)} Train turns.")
-    rows = [[k + (" ← selected on Val" if k == best_w else " (reference: earlier calibration)" if k == "shipped"
-                  else ""), f3(cand_d["train"][k]), f3(cand_d["val"][k]), f3(cand_d["test"][k])] for k in cands]
+    emit(f"### {sid} · 2. Training stage (first {int(100 * share['train'])} % of each recording)")
+    emit(f"- Voiceprint channel priors refit on {n_frames} active frames: {n_lab_frames} from the "
+         f"{len(train_keys)} labelled Train turns + {n_frames - n_lab_frames} from {len(fr_wins)} unlabelled "
+         f"full-recording turns before each Val cut (≤ {FULLREC_VP_MAX} per recording, outside the golden windows).")
+    rows = [[k + (f" ← selected on {sel_split.title()}" if k == best_w else " (reference: earlier calibration)"
+                  if k == "shipped" else ""), f3(cand_d["train"][k]), f3(cand_d["val"][k]), f3(cand_d["test"][k])]
+            for k in cands]
     emit(md_table(["VP_DIM_WEIGHTS candidate (Train-fitted priors)", "Train d'", "Val d' (selects)",
                    "Test d' (not used)"], rows))
+    if sel_split == "train":
+        emit("- Val has no turn > 6 s (no within-turn piece pairs), so Val d' is undefined; weights selected on "
+             "Train d' instead.")
     d_old = {s: d_for(with_audio[s], recs_old, shipped["VP_LOGSIG_PRIOR"], shipped["VP_DIM_WEIGHTS"]) for s in SPLITS}
     d_new = {s: d_for(with_audio[s], recs_new, logsig, fitted["VP_DIM_WEIGHTS"]) for s in SPLITS}
     emit(md_table(["voiceprint params", "Train d'", "Val d'", "Test d'"],
                   [["currently in mpc_core.py"] + [f3(d_old[s]) for s in SPLITS],
                    ["Train-fitted (this run)"] + [f3(d_new[s]) for s in SPLITS]]))
     emit(f"- changed vs mpc_core.py: {', '.join(k for k, v in changed.items() if v) or 'none'}")
-    emit("- Recording-level speaker → role priors learned from Train labels: " + "; ".join(
-        f"{src}: " + ", ".join(f"{sp}={r.split('_')[0]}" for sp, r in sorted(p.items()))
-        for src, p in sorted(role_priors.items())))
+    emit("- Speaker → role priors: labelled Train majority (wins) + full-recording cue/graph inference over the "
+         "unlabelled turns before the Val cut (fills the rest): " + "; ".join(
+             f"{src}: " + ", ".join(f"{sp}={r.split('_')[0]}"
+                                    + ("" if sp in lab_priors.get(src, {}) else " (full-rec)")
+                                    for sp, r in sorted(p.items()))
+             for src, p in sorted(role_priors.items())))
     emit(f"- Voiceprint prototypes: {sum(len(p) for p in protos.values())} (recording, speaker) means from Train "
          "turns, used only by M5 in memory; never exported or written to mpc_core (privacy rule: no enrollment "
          "in the deployed engine).")
@@ -1258,27 +1924,22 @@ def main() -> int:
         r = audit[name]
         emit(f"- Fixed schema {name}: {r['keywords']} keywords kept as shipped, {r['fire_on_train']} fire on Train; "
              f"fire on Test but never on Train (authored with Test visible): {r['test_only'] or 'none'}")
-    if audit["role_cue_agreement_train"]:
-        emit("- Role-cue weights: one hit per cue, too few to re-weight; Train agreement " + "; ".join(
-            f"{p['cue']}→{p['role'].split('_')[0]} {p['agree']}/{p['known']}"
-            for p in audit["role_cue_agreement_train"]))
-    tr_c2 = score_table_b(eval_by["train"], {u["unit_id"]: predict_config(u, TABLE_B_CONFIGS[1][2])
+    tr_c2 = score_table_b(eval_by["train"], {u["unit_id"]: predict_config(u, {**TABLE_B_CONFIGS[1][2], "memo": True})
                                              for u in eval_by["train"]})
-    tr_c3 = score_table_b(eval_by["train"], {u["unit_id"]: predict_config(u, TABLE_B_CONFIGS[2][2])
+    tr_c3 = score_table_b(eval_by["train"], {u["unit_id"]: predict_config(u, {**TABLE_B_CONFIGS[2][2], "memo": True})
                                              for u in eval_by["train"]})
-    emit(f"- Bi-CL check on Train (segments + {sum(1 for m in mixes if m['split'] == 'train')} interleaved): "
+    emit(f"- Bi-CL check on Train (segments + {n_mix['train']} interleaved): "
          f"thread F greedy {f3(tr_c2['thread_f'])} → Bi-CL {f3(tr_c3['thread_f'])}.")
 
     # ---------------------------------------------------------------- Validation grid
-    n_mix = {s: sum(1 for m in mixes if m["split"] == s) for s in SPLITS}
     emit()
-    emit(f"## 3. Validation stage — grid on {len(seg_by['val'])} Val segments + {n_mix['val']} interleaved Val "
-         "sessions (J = mean of thread F, addressee acc, slot F1, link F1, speaker-cluster F)")
+    emit(f"### {sid} · 3. Validation stage — grid on {len(seg_by['val'])} Val segments + {n_mix['val']} interleaved "
+         "Val sessions (J = mean of thread F, addressee acc, slot F1, link F1, speaker-cluster F)")
     grid = []
     for b in GRID_BICL:
         for n in GRID_GSN_N:
             for a in GRID_ALPHA:
-                cfg = dict(bicl=True, gift=True, gsn=True, bicl_sim=b, gsn_iters=n, alpha=a)
+                cfg = dict(bicl=True, gift=True, gsn=True, bicl_sim=b, gsn_iters=n, alpha=a, memo=True)
                 m = score_table_b(eval_by["val"], {u["unit_id"]: predict_config(u, cfg) for u in eval_by["val"]})
                 grid.append({"bicl": b, "gsn": n, "alpha": a, **m, "J": objective(m)})
     dist = lambda g: (abs(g["bicl"] - DEFAULTS["bicl"]) / 0.35 + abs(g["gsn"] - DEFAULTS["gsn"]) / 3.0  # noqa: E731
@@ -1297,6 +1958,7 @@ def main() -> int:
          f"(ties go to the shipped default BICL={DEFAULTS['bicl']}, N={DEFAULTS['gsn']}, α={DEFAULTS['alpha']}).")
     for hp, vals in (("bicl", GRID_BICL), ("gsn", GRID_GSN_N), ("alpha", GRID_ALPHA)):
         emit(f"- best J by {hp}: " + ", ".join(f"{v}: {max(g['J'] for g in grid if g[hp] == v):.4f}" for v in vals))
+    log(f"val grid: selected BICL={best['bicl']}, N={best['gsn']}, alpha={best['alpha']} ({n_tied} tied)")
 
     # ---------------------------------------------------------------- Test: Table A
     test_real = with_audio["test"]
@@ -1312,111 +1974,318 @@ def main() -> int:
              for u in test_real}
     ta = score_table_a(test_real, res_a, n_verified > 0)
     big = max(test_real, key=lambda u: len(u["turns"]))
-    t_big = recs_new[big["turns"][0]["key"]]
-    mem_vp = peak_kib(lambda: extract_window(next(w for w in windows if w["unit_id"] == big["window_id"]),
-                                             audio[big["window_id"]], fitted, only={big["turns"][0]["key"]}))
+    mem_vp = vp_peak_kib(big["turns"][0], audio[big["window_id"]], fitted)
     mem_a = {"M1": peak_kib(lambda: roles_for(big, m1_cluster(recs_of(big), ac_norm), False, None)),
              "M2": peak_kib(lambda: m2_cluster(big)) + mem_vp,
-             "M3": peak_kib(lambda: roles_for(big, [t["speaker_id"] for t in big["turns"]], False, big["role_priors"])),
+             "M3": peak_kib(lambda: roles_for(big, [t["speaker_id"] for t in big["turns"]], False, None)),
              "M4": peak_kib(lambda: run_engine(big, best_cfg(best))) + mem_vp,
              "M5": peak_kib(lambda: m5_assign(big, protos.get(big["source"], {}))) + mem_vp}
-    del t_big
     n_cues = sum(len(c) for _, c in core.EXTENDED_ROLE_CUES)
     params_a = {"M1": "0 fitted (2-d K-means, k=3)", "M2": "73 VP floats + role priors",
-                "M3": f"{n_cues} schema cues + role priors", "M4": "73 VP floats + schema + priors + 3 hyper-params",
+                "M3": f"{n_cues} schema cues (no priors)", "M4": "73 VP floats + schema + priors + 3 hyper-params",
                 "M5": f"{sum(len(p) for p in protos.values())} × 24-d prototypes + role priors"}
+    n_test_turns = sum(len(u["turns"]) for u in test_real)
     emit()
-    emit(f"## 4. Testing stage — last 25 % of each recording ({len(test_real)} segments, "
-         f"{sum(len(u['turns']) for u in test_real)} turns), Val-selected config")
+    emit(f"### {sid} · 4. Testing stage — last {int(100 * share['test'])} % of each recording ({len(test_real)} "
+         f"segments, {n_test_turns} turns), Val-selected config")
     emit()
-    emit("### Table A — Speaker diarization & role identification")
-    rows = []
-    for mid, name in TABLE_A_MODELS:
-        m = ta[mid]
-        pur = ("— (= label source)" if m["purity_is_label_source"]
-               else f"{m['speaker_purity']:.3f} / {m['speaker_inverse_purity']:.3f}")
-        dp = (f"{f3(m['dprime'])} (w={m['within_pairs']}, c={m['cross_pairs']})" if mid in ("M1", "M2", "M4")
-              else "—")
-        rows.append([f"{mid}: {name}", dp, pur, f"{pct(m['role_acc'])} (n={m['role_n']})",
-                     f"{m['ms_per_turn']:.2f}", f"{mem_a[mid]:.0f}", params_a[mid]])
-    emit(md_table(["Model", "d' within-turn vs cross-speaker", "Speaker purity / inverse purity",
-                   "Role ID acc %", "Latency ms/turn", "Peak mem KiB", "Fitted params"], rows))
-    emit("- d': within = pieces of one >6 s turn (one talker by construction); cross = pieces of adjacent turns "
-         "whose (draft) speaker differs. M4's within pairs are E2CP Must-Link constraints (optimistic); M1's cross "
-         "pairs come from a diarizer built on the same RMS / ZCR features (inflated).")
-    emit("- Speaker purity is against the draft speaker column (the acoustic diarizer), i.e. agreement with the "
-         "diarizer until speakers are verified by listening. Role priors come from the same recording's Train turns.")
-    emit("- Latency includes per-turn feature extraction and is measured on this Mac (`--latency-only` on the Pi).")
+    emit(f"#### Table A [{tag}] — Speaker diarization & role identification")
+    rows = [r[:-1] + [r[-1], params_a[mid]] for r, (mid, _) in zip(summary_a_rows(ta, mem_a), TABLE_A_MODELS)]
+    emit(md_table(SUMMARY_A_HEADER + ["Fitted params"], rows))
+    emit("- " + role_attribution_line(ta))
+    log(f"table A: role ID M3 {pct(ta['M3']['role_acc'])} vs M4 {pct(ta['M4']['role_acc'])} "
+        f"(n={ta['M4']['role_n']})")
 
     # ---------------------------------------------------------------- Test: Table B
     test_units = eval_by["test"]
     tb: Dict[str, dict] = {}
-    tb_mix: Dict[str, dict] = {}
+    tb_mix: Dict[str, Optional[dict]] = {}
     for cid, _, cfg in TABLE_B_CONFIGS:
         preds = {u["unit_id"]: predict_config(u, cfg_with(cfg, best)) for u in test_units}
         tb[cid] = score_table_b(test_units, preds)
         mx = [u for u in test_units if u["kind"] == "interleaved"]
         tb_mix[cid] = score_table_b(mx, preds) if mx else None
+        tb[cid]["consensus_pred"] = {u["unit_id"]: [preds[u["unit_id"]]["consensus"], u["gt_consensus"]]
+                                     for u in test_units}
     big_b = max(test_units, key=lambda u: len(u["turns"]))
     mem_b = {cid: peak_kib(lambda c=cfg: predict_config(big_b, cfg_with(c, best))) for cid, _, cfg in TABLE_B_CONFIGS}
     emit()
-    emit(f"### Table B — Disentanglement, addressee, slot fusion, P0 guard (Test: {len(seg_by['test'])} segments + "
-         f"{n_mix['test']} interleaved sessions, {sum(len(u['turns']) for u in test_units)} turns)")
+    emit(f"#### Table B [{tag}] — Disentanglement, addressee, slot fusion, multi-hop / consensus, P0 guard (Test: "
+         f"{len(seg_by['test'])} segments + {n_mix['test']} interleaved sessions, "
+         f"{sum(len(u['turns']) for u in test_units)} turns)")
     emit(md_table(TABLE_B_HEADER, table_b_rows(tb, mem_b)))
     if any(tb_mix.values()):
         emit("- Interleaved Test sessions only — thread purity / cohesion: " + "; ".join(
             f"{cid} {tb_mix[cid]['thread_purity']:.3f} / {tb_mix[cid]['thread_cohesion']:.3f}"
             for cid, _, _ in TABLE_B_CONFIGS))
-    emit("- Links: labelled issue → later resolution in the same thread; multi-hop = the resolution's reply chain "
-         "is ≥ 2 hops from the issue, or does not reach it. Predicted links = fused issue/resolution pairs in one "
-         "predicted thread, plus (C5) GSN gsn_linked_issues. P0 is counted on real segments only.")
+    emit(f"- Gold consensus states of the Test units: {tb['C5']['consensus_gt_states']}; "
+         "C5 predicted vs gold per unit: " + "; ".join(
+             f"{uid.replace('#test', '')}: {p} / {g}" for uid, (p, g) in tb["C5"]["consensus_pred"].items()))
+    log(f"table B: multi-hop & consensus C4 {pct(tb['C4']['mhc_acc'])} vs C5 {pct(tb['C5']['mhc_acc'])} "
+        f"(n={tb['C5']['mhc_n']})")
 
-    # ---------------------------------------------------------------- Table C: scripted regression set
+    # ---------------------------------------------------------------- scripted home-care dialogues
     tc = {cid: score_table_b(scripted, {u["unit_id"]: predict_config(u, cfg_with(cfg, best)) for u in scripted})
           for cid, _, cfg in TABLE_B_CONFIGS}
+
+    results = {
+        "scheme": sid, "origin": origin, "shares": share, "ratio": ratio,
+        "recording_cuts": cuts, "segments": {u["unit_id"]: u["split"] for u in segs},
+        "interleaved": {u["unit_id"]: u["split"] for u in mixes}, "interleaved_per_split": n_mix,
+        "fullrec_vp_turns": len(fr_wins), "vp_frames": {"labelled": n_lab_frames, "total": n_frames},
+        "vp_fitted": fitted, "vp_before": shipped, "vp_changed": changed, "vp_weight_candidates_dprime": cand_d,
+        "vp_weight_selected": best_w, "vp_weight_selected_on": sel_split, "vp_dprime_before": d_old,
+        "vp_dprime_fitted": d_new, "fisher_ratios": [round(r, 3) for r in ratios],
+        "role_priors_labelled": lab_priors, "role_priors_fullrec": fr_priors, "role_priors": role_priors,
+        "schema_audit": audit, "grid": grid, "selected": {k: best[k] for k in ("bicl", "gsn", "alpha")},
+        "test_turns_table_a": n_test_turns, "table_a": ta, "table_a_mem_kib": mem_a, "table_b": tb,
+        "table_b_mem_kib": mem_b, "table_b_interleaved_only": tb_mix, "table_c_scripted": tc}
+    return {"md": md, "results": results, "segs": segs, "fitted": fitted, "tag": tag}
+
+
+def run_scheme_worker(scheme: tuple, windows: List[dict], scripted: List[dict], audio: Dict[str, LazyAudio],
+                      n_verified: int) -> Tuple[Dict[str, Any], Dict[str, Any], Tuple[int, int]]:
+    """Process-pool entry: one split scheme -> (run, new voiceprint-cache records, (hits, misses))."""
+    run = run_scheme(scheme, windows, scripted, audio, n_verified)
+    cache = vp_cache()
+    return run, {k: cache[k] for k in _VP_CACHE_STATE["new"]}, (_VP_CACHE_STATE["hits"], _VP_CACHE_STATE["misses"])
+
+
+def table_c_md(corpus: List[dict], sim: Dict[str, Any], runs: Dict[str, dict]) -> List[str]:
+    md: List[str] = []
+    emit = lambda line="": md.append(line)   # noqa: E731
+    emit("## Table C — Audio segmentation, noise filtering & data simulation (錄音檔：切分、雜訊 · 數據模擬)")
     emit()
-    emit("### Table C — Scripted regression set (5 benchmark dialogues; not a held-out split)")
+    emit("### C-1. Real recordings: segmentation & noise (Whisper segments → loop collapse → merged turns → "
+         "T_BACKCHANNEL_NOISE)")
+    rows, tot = [], {k: 0 for k in ("duration_sec", "raw_segments", "asr_loop_runs", "asr_loop_segments_absorbed",
+                                    "merged_turns", "noise_turns", "substantive_turns", "ambient_ignored_noise")}
+    for r in corpus:
+        rows.append([r["source"] + ("" if r["in_corpus"] else " (lab meeting, not in corpus)"),
+                     f"{r['duration_sec'] / 60:.1f}", str(r["raw_segments"]),
+                     f"{r['asr_loop_runs']} runs / {r['asr_loop_segments_absorbed']} segs (max ×{r['max_loop']})",
+                     str(r["merged_turns"]), f"{r['raw_segments'] / max(1, r['merged_turns']):.2f}",
+                     f"{r['noise_turns']} ({pct(r['noise_turns'] / max(1, r['merged_turns']))} %)",
+                     str(r["substantive_turns"]), str(r["ambient_ignored_noise"])])
+        if r["in_corpus"]:
+            for k in tot:
+                tot[k] += r[k] or 0
+    rows.append([f"**3 Jia-An recordings ({tot['duration_sec'] / 3600:.2f} h)**", f"{tot['duration_sec'] / 60:.1f}",
+                 str(tot["raw_segments"]), f"{tot['asr_loop_runs']} runs / {tot['asr_loop_segments_absorbed']} segs",
+                 str(tot["merged_turns"]), f"{tot['raw_segments'] / max(1, tot['merged_turns']):.2f}",
+                 f"{tot['noise_turns']} ({pct(tot['noise_turns'] / max(1, tot['merged_turns']))} %)",
+                 str(tot["substantive_turns"]), str(tot["ambient_ignored_noise"])])
+    emit(md_table(["recording", "min", "raw Whisper segments", "ASR repetition loops collapsed", "merged turns",
+                   "segments / turn", "T_BACKCHANNEL_NOISE turns", "substantive turns",
+                   "ambient packets ignored as noise"], rows))
+    emit("- Loops = ≥ 3 consecutive identical segments (collapse_asr_loops on the stored *_raw_stt.json); merged "
+         "turns / noise turns are read from each *_mpc_report.json (general_disentangle.noise_turn_ids).")
+    emit()
+    emit("### C-2. Simulated boundary bleed — 0.25 s collar + 75 %-anchor window vs whole-turn window "
+         f"(synthetic low / high voices, {SIM_TURN_S:.0f} s target turn, {len(SIM_SEEDS)} seeds × 2 target voices)")
+    names = list(sim["bleed"])
+    rows = []
+    for case in sim["bleed"][names[0]]:
+        row = [case]
+        for nm in names:
+            xs = sim["bleed"][nm][case]
+            row += [f"{100.0 * sum(x[0] for x in xs) / len(xs):.0f} %", f"{sum(x[1] for x in xs) / len(xs):+.3f}",
+                    f"{100.0 * sum(x[2] for x in xs) / len(xs):.0f} %"]
+        rows.append(row)
+    allc = {nm: [x for v in sim["bleed"][nm].values() for x in v] for nm in names}
+    rows.append(["**all cases**"] + [c for nm in names for c in (
+        f"{100.0 * sum(x[0] for x in allc[nm]) / len(allc[nm]):.0f} %",
+        f"{sum(x[1] for x in allc[nm]) / len(allc[nm]):+.3f}",
+        f"{100.0 * sum(x[2] for x in allc[nm]) / len(allc[nm]):.0f} %")])
+    emit(md_table(["bleed inside the turn span"] + [f"{nm}: {k}" for nm in names
+                                                     for k in ("correct speaker", "cos margin", "bleed in window")],
+                  rows))
+    emit("- correct speaker = cos(turn vp, target ref) > cos(turn vp, interferer ref); bleed in window = share of the "
+         "analysis window that lies inside the bleed span (0 % = rejected by the sampler).")
+    emit()
+    emit("### C-3. Simulated whole-turn overlap (interferer mixed under the full target turn)")
+    emit(md_table(["target-to-interferer SNR", "correct speaker", "mean cos margin"],
+                  [[k, f"{100.0 * sum(x[0] for x in v) / len(v):.0f} % ({sum(x[0] for x in v)}/{len(v)})",
+                    f"{sum(x[1] for x in v) / len(v):+.3f}"] for k, v in sim["snr"].items()]))
+    emit("- The collar / anchor only rejects bleed at turn boundaries; full overlap is not separated (no source "
+         "separation on the Pi), so this row shows where the voiceprint evidence degrades.")
+    emit()
+    nf = sim["near_far"]
+    emit("### C-4. Simulated near-field (headset wearer) vs far-field (1–3 m interlocutor) — near_field_score")
+    emit(md_table(["condition", "n", "mean near_field_score", "min / max"],
+                  [["near-field", str(len(nf["near"])), f"{sum(nf['near']) / len(nf['near']):.3f}",
+                    f"{min(nf['near']):.3f} / {max(nf['near']):.3f}"],
+                   ["far-field (3 echoes, HF damping, −10 dB, noise floor)", str(len(nf["far"])),
+                    f"{sum(nf['far']) / len(nf['far']):.3f}", f"{min(nf['far']):.3f} / {max(nf['far']):.3f}"]]))
+    emit(f"- separation: AUC {nf['auc']:.3f}, d' {f3(nf['dprime'])}, accuracy {pct(nf['midpoint_acc'])} % at the "
+         f"midpoint threshold {nf['midpoint_threshold']:.3f}.")
+    emit()
+    emit("### C-5. Simulated multi-party interleaving (two real segments → one A A B B … session, gold threads kept)")
+    rows = []
+    for sid, run in runs.items():
+        r = run["results"]
+        mx = r["table_b_interleaved_only"]
+        rows.append([run["tag"], " / ".join(str(r["interleaved_per_split"][s]) for s in SPLITS)]
+                    + [(f"{mx[c]['thread_purity']:.3f} / {mx[c]['thread_cohesion']:.3f}" if mx.get(c) else "n/a")
+                       for c in ("C1", "C2", "C3", "C5")])
+    emit(md_table(["split scheme", "interleaved sessions Train / Val / Test", "Test thread purity / cohesion: C1",
+                   "C2 greedy", "C3 Bi-CL", "C5 full"], rows))
+    emit()
+    emit("### C-6. Simulated home-care benchmark — 5 scripted dialogues (build_5_benchmark_scenarios; never trained "
+         "on)")
+    tcs = {sid: run["results"]["table_c_scripted"] for sid, run in runs.items()}
+    same = len({json.dumps({c: {k: x for k, x in m.items() if k != "ms_per_turn"} for c, m in v.items()},
+                           sort_keys=True, default=str) for v in tcs.values()}) == 1
+    rows = []
+    for sid, tc in tcs.items():
+        for cid, _, _ in TABLE_B_CONFIGS:
+            m = tc[cid]
+            rows.append([cid + ("" if same else f" [{runs[sid]['tag']}]"),
+                         f"{m['thread_purity']:.3f} / {m['thread_cohesion']:.3f}",
+                         f"{pct(m['addressee_acc'])} (n={m['addressee_n']})", pct(m["slot_completeness"]),
+                         f"{pct(m['consensus_acc'])} ({m['consensus_ok']}/{m['consensus_n']})",
+                         f"{pct(m['p0_far'])} ({m['p0_far_fp']}/{m['p0_far_n']})",
+                         f"{pct(m['p0_recall'])} (n={m['p0_recall_n']})"])
+        if same:
+            break
     emit(md_table(["Config", "Thread purity / cohesion", "Addressee acc %", "Slot completeness %",
-                   "Hypothetical P0 FAR %", "Live P0 recall %"],
-                  [[cid, f"{tc[cid]['thread_purity']:.3f} / {tc[cid]['thread_cohesion']:.3f}",
-                    f"{pct(tc[cid]['addressee_acc'])} (n={tc[cid]['addressee_n']})",
-                    pct(tc[cid]["slot_completeness"]),
-                    f"{pct(tc[cid]['p0_far'])} ({tc[cid]['p0_far_fp']}/{tc[cid]['p0_far_n']})",
-                    f"{pct(tc[cid]['p0_recall'])} (n={tc[cid]['p0_recall_n']})"] for cid, _, _ in TABLE_B_CONFIGS]))
+                   "Consensus acc %", "Hypothetical P0 FAR %", "Live P0 recall %"], rows))
+    if same:
+        emit("- identical under both split schemes (both Val grids select the same configuration).")
+    return md
 
-    emit()
-    emit("## 5. interview4 lab meeting (05:00–14:00, Hotspot #3 13:16–14:16)")
-    for line in interview4_summary():
-        emit(line)
 
-    meta = {"schema": "xiaozhao.annotated_ground_truth.v2",
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--write-core", action="store_true",
+                    help=f"write the {PRIMARY_SCHEME} Train-fitted VP_* params into src/mpc_core.py")
+    ap.add_argument("--latency-only", action="store_true")
+    ap.add_argument("--serial", action="store_true", help="run the split schemes one after another (no workers)")
+    args = ap.parse_args()
+    if args.latency_only:
+        return latency_only()
+
+    units = load_units()
+    n_verified = import_verified(units)
+    windows = [u for u in units if u["kind"] == "real_window"]
+    scripted = [u for u in units if u["kind"] == "scripted_dialogue"]
+    for u in scripted:
+        u["gt_consensus"] = gt_consensus(u)
+    n_turns = sum(len(w["turns"]) for w in windows) + sum(len(u["turns"]) for u in scripted)
+    t_start = time.perf_counter()
+    audio = {w["unit_id"]: a for w in windows for a in [lazy_audio(w)] if a is not None}
+
+    def tables_cd() -> Tuple[List[dict], Dict[str, Any], Dict[str, Any]]:
+        print("[table C] corpus segmentation stats + synthetic bleed / overlap / near-far simulation ...", flush=True)
+        corpus_, sim_ = corpus_segmentation_stats(), simulate_audio()
+        print("[table D] P-series ambient prefetcher benchmark ...", flush=True)
+        return corpus_, sim_, p_series()
+
+    if args.serial:
+        runs = {sc[0]: run_scheme(sc, windows, scripted, audio, n_verified) for sc in SCHEMES}
+        corpus, sim, ps = tables_cd()
+    else:   # one worker process per split scheme; Tables C / D are computed here meanwhile
+        import multiprocessing
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=len(SCHEMES), mp_context=multiprocessing.get_context("spawn")) as ex:
+            futs = {sc[0]: ex.submit(run_scheme_worker, sc, windows, scripted, audio, n_verified) for sc in SCHEMES}
+            corpus, sim, ps = tables_cd()
+            runs = {}
+            for sid, fut in futs.items():
+                runs[sid], new, (hits, misses) = fut.result()
+                vp_cache().update(new)
+                _VP_CACHE_STATE["dirty"] |= bool(new)
+                _VP_CACHE_STATE["hits"] += hits
+                _VP_CACHE_STATE["misses"] += misses
+
+    head: List[str] = [
+        "# XiaoZhao v7.7 — Train / Validation / Test benchmark, two chronological split schemes",
+        "",
+        f"Labels: {n_verified} / {n_turns} turns human-verified; the rest are DRAFT labels (text-level labels drafted "
+        "from the cleaned transcripts, speaker = acoustic diarizer label). Numbers are provisional until verified.",
+        "",
+        "Schemes: " + "; ".join(f"**{sc[0]}** = {sc[1]} ({sc[3]})" for sc in SCHEMES)
+        + ". Both cut each recording's labelled turns chronologically (no future leakage) and select "
+          "hyper-parameters on their own Val split.",
+        "",
+        "Pipeline division of labour: STT (XiaoZhao Whisper API → local faster_whisper fallback) → Edge MPC on the Pi "
+        "(this benchmark: addressee, TD/MF + Bi-CL threads, GIFT, GSN, MIntRec, voiceprint E2CP, DST fusion) → "
+        "backend LLM (consumes the analyze_session payload; not scored here).",
+        "",
+        "## Summary — Test-split tables, both schemes",
+    ]
+    for sid, run in runs.items():
+        r = run["results"]
+        head += ["", f"### Table A [{run['tag']}] — Speaker diarization & role ID ({r['test_turns_table_a']} Test "
+                     "turns)",
+                 md_table(SUMMARY_A_HEADER, summary_a_rows(r["table_a"], r["table_a_mem_kib"])),
+                 "- " + role_attribution_line(r["table_a"])]
+    for sid, run in runs.items():
+        r = run["results"]
+        n_b = sum(len(u["turns"]) for u in run["segs"] if u["split"] == "test")
+        head += ["", f"### Table B [{run['tag']}] — MPC disentanglement, GIFT, GSN & MIntRec (Test: "
+                     f"{n_b} segment turns + {r['interleaved_per_split']['test']} interleaved sessions; Val-selected "
+                     f"BICL={r['selected']['bicl']}, N={r['selected']['gsn']}, α={r['selected']['alpha']})",
+                 md_table(SUMMARY_B_HEADER, summary_b_rows(r["table_b"], r["table_b_mem_kib"]))]
+    head += [
+        "",
+        "Notes",
+        "- d': within = pieces of one >6 s turn (one talker by construction); cross = pieces of adjacent turns whose "
+        "(draft) speaker differs. M4's within pairs are E2CP Must-Link constraints (optimistic); M1's cross pairs "
+        "come from a diarizer built on the same RMS / ZCR features (inflated). n/a = fewer than 2 pairs in the split.",
+        "- Speaker purity is against the draft speaker column (the acoustic diarizer) until speakers are verified by "
+        "listening. Role ID: M3 uses only lexical self-cues; M2 / M4 / M5 add the Train speaker → role priors; M4 "
+        "also runs gift_infer_roles, which only resolves speakers that have neither own cues nor a prior. Roles are "
+        "keyed by the diarizer label, so voiceprints change speaker purity / d', not role ID.",
+        "- Multi-Hop & Consensus acc = pooled accuracy over (a) gold issue → resolution pairs whose reply chain is "
+        "≥ 2 hops or off the chain (hit = linked by same predicted thread or, C5, by GSN gsn_linked_issues) and (b) "
+        "one consensus_state per Test unit vs the gold state (the engine's state rule — a resolution after the first "
+        "issue, ≥ 2 speakers, no REQUEST_TO_REFUSAL left unanswered by a later resolution — applied to gold threads, speakers, MIntRec fine "
+        "intents and slots). C1–C4 run without GSN and without MIntRec transition chains, "
+        "so a trailing REQUEST_TO_REFUSAL cannot hold their state at OPEN_DISCUSSION.",
+        "- Latency includes per-turn feature extraction and is measured on this Mac (`--latency-only` on the Pi).",
+        "",
+    ]
+    tail = table_c_md(corpus, sim, runs) + [""] + table_d_md(ps)
+    print("\n".join(head + tail))
+
+    md = head + tail + [""]
+    for run in runs.values():
+        md += run["md"] + [""]
+    md += ["## interview4 lab meeting (05:00–14:00, Hotspot #3 13:16–14:16)"] + interview4_summary()
+
+    prim = runs[PRIMARY_SCHEME]
+    other_split = {f"split_{sid}": {t["key"]: t["split"] for u in run["segs"] for t in u["turns"]}
+                   for sid, run in runs.items()}
+    meta = {"schema": "xiaozhao.annotated_ground_truth.v3",
             "privacy": "anonymous speaker_N diarizer clusters; 24-d voiceprints are session-local evidence "
                        "(no enrollment, no identity matching); local file, gitignored",
-            "split_protocol": "per recording, chronological over the labelled golden-window turns: first 50 % "
-                              "train / next 25 % val / last 25 % test; scripted dialogues = 'scripted'",
-            "recording_cuts": cuts, "human_verified_turns": n_verified, "total_turns": n_turns,
+            "split_protocol": f"'split' = {PRIMARY_SCHEME}; split_<scheme> columns per scheme: per recording, "
+                              "chronological over the labelled golden-window turns; scripted dialogues = 'scripted'",
+            "recording_cuts": {sid: run["results"]["recording_cuts"] for sid, run in runs.items()},
+            "human_verified_turns": n_verified, "total_turns": n_turns,
             "label_provenance": {"claude_draft_text+diarizer_speaker": "text labels drafted from normalize_asr_text "
                                  "output; ground_truth_speaker = acoustic diarizer label (needs listening)",
                                  "benchmark_script+claude_draft": "speaker / role scripted in "
                                  "build_5_benchmark_scenarios; other labels drafted",
                                  "human_verified_csv": "re-imported from the CSV (human_verified=1)"},
-            "voiceprint_params": "Train-fitted (src/train_val_test_eval.py)"}
-    export_dataset(sorted(segs, key=lambda u: (u["source"], u["turns"][0]["start"])) + scripted, meta)
+            "voiceprint_params": f"Train-fitted on scheme {PRIMARY_SCHEME} (src/train_val_test_eval.py)"}
+    export_dataset(sorted(prim["segs"], key=lambda u: (u["source"], u["turns"][0]["start"])) + scripted, meta,
+                   other_split)
     RESULTS_JSON.write_text(json.dumps({
-        "recording_cuts": cuts, "segments": {u["unit_id"]: u["split"] for u in segs},
-        "interleaved": {u["unit_id"]: u["split"] for u in mixes},
-        "vp_fitted": fitted, "vp_before": shipped, "vp_changed": changed, "vp_weight_candidates_dprime": cand_d,
-        "vp_weight_selected": best_w, "vp_dprime_before": d_old, "vp_dprime_fitted": d_new,
-        "fisher_ratios": [round(r, 3) for r in ratios], "role_priors": role_priors, "schema_audit": audit,
-        "grid": grid, "selected": {k: best[k] for k in ("bicl", "gsn", "alpha")}, "table_a": ta, "table_b": tb,
-        "table_b_interleaved_only": tb_mix, "table_c_scripted": tc, "human_verified_turns": n_verified},
-        ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+        "schemes": {sid: run["results"] for sid, run in runs.items()},
+        "table_c_audio": {"corpus_segmentation": corpus, "simulation": sim},
+        "table_d_prefetcher": ps,
+        "human_verified_turns": n_verified}, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
     TABLES_MD.write_text("\n".join(md) + "\n", encoding="utf-8")
-    print(f"\nwrote {DATASET_JSON.relative_to(ROOT)}, {DATASET_CSV.relative_to(ROOT)}, "
+    save_vp_cache()
+    print(f"\nvoiceprint cache {VP_CACHE_PATH.relative_to(ROOT)}: {_VP_CACHE_STATE['hits']} hits, "
+          f"{_VP_CACHE_STATE['misses']} misses; total {time.perf_counter() - t_start:.1f} s")
+    print(f"wrote {DATASET_JSON.relative_to(ROOT)}, {DATASET_CSV.relative_to(ROOT)}, "
           f"{RESULTS_JSON.relative_to(ROOT)}, {TABLES_MD.relative_to(ROOT)}")
     if args.write_core:
         print("src/mpc_core.py: VP_PRIOR_MEAN / VP_PRIOR_STD / VP_LOGSIG_PRIOR / VP_DIM_WEIGHTS "
-              + ("updated (Train-fitted)" if write_core_params(fitted) else "unchanged"))
+              + ("updated (Train-fitted)" if write_core_params(prim["fitted"]) else "unchanged"))
     return 0
 
 
